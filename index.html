@@ -110,28 +110,15 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 </style>
 </head>
 <body>
-<!-- ===== ログイン画面：メールアドレスのみで認証（Firebase Authenticationのメールリンク＝マジックリンク方式）。認証成功までアプリ本体(#appHeader/#appMain)は非表示 ===== -->
+<!-- ===== ログイン画面：メールアドレスのみで認証（確認メールなし。登録済みメールアドレスなら即ログイン）。認証成功までアプリ本体(#appHeader/#appMain)は非表示 ===== -->
 <div id="pageLogin" class="wrap" style="max-width:420px;padding-top:60px">
 <section class="card">
 <h2>🔐 ログイン</h2>
-<div id="loginStep1">
 <div class="detail-grid">
 <label class="full">メールアドレス<input id="login_email" type="email" placeholder="you@example.com"></label>
 </div>
 <div class="help" id="loginError" style="color:#dc2626"></div>
-<div class="detail-actions"><button onclick="handleSendLoginLink()">ログイン用リンクを送信</button></div>
-</div>
-<div id="loginStep2" style="display:none">
-<div class="help" id="loginSentMessage"></div>
-</div>
-</section>
-</div>
-
-<!-- ===== メール確認用の中継画面：メールリンクをクリックして戻ってきた直後、ログイン処理が終わるまで表示 ===== -->
-<div id="pageLoginCompleting" class="wrap" style="max-width:420px;padding-top:60px;display:none">
-<section class="card">
-<h2>🔐 ログイン処理中…</h2>
-<div class="help" id="loginCompletingMessage">しばらくお待ちください。</div>
+<div class="detail-actions"><button onclick="handleLoginNow()">ログイン</button></div>
 </section>
 </div>
 
@@ -409,42 +396,50 @@ const db=firebase.firestore();
 
 /* ===================================================================
    【認証・アカウント管理モジュール】（Firebase Authentication + Firestore）
-   ログインは「メールアドレスのみ」で行う（Firebase Authenticationのメールリンク＝
-   マジックリンク方式。パスワードは使わない）。メールアドレスを入力すると
-   ログイン用リンクが記載されたメールが届き、そのリンクをクリックすると
-   ログインが完了する。
+   ログインは「メールアドレスのみ」、確認メールなしで即ログインする方式。
+   ただし内部的には、本人には一切見せない・入力させない固定のパスワードを使って、
+   実在するFirebase Authenticationのメール/パスワードアカウントをその場で
+   自動発行・自動サインインしている。これにより、Firebase Authenticationの
+   ユーザー一覧にも実際のメールアドレスがそのまま表示されるようになる
+   （匿名アカウントは一切作らない）。
+   ※重要：この方式は「本人確認」をしていない。登録済みのメールアドレスを
+   知っている人なら誰でもそのアカウントとしてログインできる。固定パスワードは
+   セキュリティのためのものではなく、単に「Firebase Authenticationの
+   本物のアカウントとして扱うための形式上の値」に過ぎない。身内利用の
+   簡易ツールという前提の上での実装であることに注意。
    社員メニューの利用可否(status)・ダークモード設定は、Firestoreの
-   users/{email} ドキュメントに保存する（メールアドレス自体をキーに使用。
-   Firebase Authenticationのuidは、メールリンクでの初回ログイン時に
-   Firebase側が自動的に発行するため、事前登録の時点ではまだ存在しないことによる）。
+   users/{email} ドキュメントに保存する（メールアドレス自体をキーに使用）。
    スタッフ登録（氏名＋PIN、アプリ内自己登録）は廃止。アカウントの追加・管理は
-   Firebase Authenticationコンソール、またはこのアプリの「メールアドレス登録」
-   （社員ステータスのアカウントのみ利用可）から行う。
-   ※最初の1アカウントは、Firestoreの users コレクションに直接ドキュメントを
-     作成（ドキュメントID＝メールアドレス、フィールド status:"社員" 等）するか、
-     もしくは何もせずログインすればステータス「社員」として自動的にプロフィールが
-     作成される（下記ensureUserProfile参照）。
-   ※メールリンク認証を使うには、Firebaseコンソールの Authentication→Sign-in method
-     →メール/パスワード→「メールリンク（パスワードなしでログイン）」を有効にし、
-     このページを実際に配信するドメインを Authentication→Settings→
-     承認済みドメイン に追加しておく必要がある（file://では動作しない）。
+   このアプリの「メールアドレス登録」（社員ステータスのアカウントのみ利用可）、
+   または直接Firestoreの users コレクションにドキュメントを追加して行う。
+   ※最初の1アカウントは、Firestoreコンソールから users コレクションに
+     直接ドキュメントを作成する（ドキュメントID＝メールアドレス、
+     フィールド status:"社員", darkMode:false）。それだけで、そのメールアドレスで
+     ログインすれば自動的にFirebase Authenticationアカウントが発行される。
+   ※Firestoreのセキュリティルールで、users コレクションの「読み取り」だけは
+     未ログインでも許可しておく必要がある（ログイン前に登録済みかどうかを
+     確認するため）。書き込みは引き続きログイン済みのみに制限する。
+     例：
+       match /users/{email} {
+         allow read: if true;
+         allow write: if request.auth != null;
+       }
+       match /months/{monthId} {
+         allow read, write: if request.auth != null;
+       }
    =================================================================== */
 let currentEmployee=null; // ログイン中のアカウント情報（{uid,email,status,darkMode}）。未ログイン時はnull
-const EMAIL_FOR_SIGNIN_KEY="buppin-kanri-email-for-signin"; // リンクをクリックして戻ってきた際に本人確認に使うメールアドレスの一時保存先
+// 本人には見せない、内部処理専用の固定パスワード（Firebase Authenticationの仕様上パスワード欄が必須なだけで、実際の秘密情報としては機能していない）
+const SHARED_AUTH_SECRET="buppin-kanri-internal-8f3k2x9qZp!";
 
-// Firestoreの users/{email} を取得する。無ければ（＝初めてログインする人、または管理者が
-// 事前登録していない場合）ステータス「社員」・ダークモードOFFの初期プロフィールを作成して返す
-async function ensureUserProfile(user){
-  const ref=db.collection("users").doc(user.email);
-  const snap=await ref.get();
-  if(snap.exists)return{uid:user.uid,email:user.email,...snap.data()};
-  const profile={email:user.email,status:"社員",darkMode:false,createdAt:new Date().toISOString()};
-  await ref.set(profile);
-  return{uid:user.uid,...profile};
+// Firestoreの users/{email} を取得する。存在しなければnullを返す（未登録のメールアドレス）
+async function loadUserProfile(email){
+  const snap=await db.collection("users").doc(email).get();
+  if(!snap.exists)return null;
+  return{uid:auth.currentUser?auth.currentUser.uid:null,email,...snap.data()};
 }
 // メールアドレス登録ボタン押下時の処理：入力チェック→Firestoreにステータス付きプロフィールを事前登録する
-// （本人はまだ一度もログインしていなくてよい。初めてログインリンクでログインした瞬間に、
-//   Firebase Authenticationのアカウントが自動発行され、このプロフィールと紐付く）
+// （この時点ではFirebase Authenticationのアカウントは作らない。本人が実際にログインした瞬間に自動発行される）
 async function handleRegisterEmployee(){
   const email=document.getElementById("emp_email").value.trim();
   const status=document.getElementById("emp_status").value;
@@ -454,54 +449,41 @@ async function handleRegisterEmployee(){
   const snap=await ref.get();
   if(snap.exists){alert("このメールアドレスは既に登録されています。");return}
   await ref.set({email,status,darkMode:false,createdAt:new Date().toISOString()});
-  alert(email+"（"+status+"）を登録しました。本人が次回このメールアドレスでログインすると、このステータスが適用されます。");
+  alert(email+"（"+status+"）を登録しました。本人が次回このメールアドレスでログインできます。");
   document.getElementById("emp_email").value="";
   document.getElementById("emp_status").value="";
   handleCancelEmployeeRegister();
 }
-// ログイン画面の「ログイン用リンクを送信」押下時の処理：入力チェック→Firebase Authenticationにログインリンクの送信を依頼
-async function handleSendLoginLink(){
+// ログイン画面の「ログイン」押下時の処理：入力チェック→登録済みメールアドレスか照合
+// →Firebase Authenticationの本物のアカウントとしてサインイン（初回なら自動発行してからサインイン）
+async function handleLoginNow(){
   const email=document.getElementById("login_email").value.trim();
   const errEl=document.getElementById("loginError");
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){errEl.textContent="メールアドレスの形式で入力してください。";return}
   errEl.textContent="";
-  const actionCodeSettings={url:location.origin+location.pathname,handleCodeInApp:true};
+  const snap=await db.collection("users").doc(email).get();
+  if(!snap.exists){errEl.textContent="このメールアドレスは登録されていません。社員に登録を依頼してください。";return}
   try{
-    await auth.sendSignInLinkToEmail(email,actionCodeSettings);
-    localStorage.setItem(EMAIL_FOR_SIGNIN_KEY,email); // 同じ端末・ブラウザでリンクを開いたときに本人確認に使う
-    document.getElementById("loginStep1").style.display="none";
-    document.getElementById("loginStep2").style.display="";
-    document.getElementById("loginSentMessage").textContent=email+" 宛にログイン用のリンクを送信しました。メール内のリンクをクリックしてログインしてください。";
+    await auth.signInWithEmailAndPassword(email,SHARED_AUTH_SECRET);
   }catch(err){
-    errEl.textContent="リンクの送信に失敗しました："+err.message;
+    if(err.code==="auth/user-not-found"){
+      try{
+        await auth.createUserWithEmailAndPassword(email,SHARED_AUTH_SECRET); // このメールアドレスでの初回ログイン：Firebase Authenticationアカウントを自動発行
+      }catch(err2){
+        errEl.textContent="ログインに失敗しました："+err2.message;
+        return;
+      }
+    }else{
+      errEl.textContent="ログインに失敗しました："+err.message;
+      return;
+    }
   }
-}
-// ページ読み込み時：URLがメールリンク（ログインリンク）かどうかを確認し、そうであればログインを完了させる
-async function completeEmailLinkSignInIfNeeded(){
-  if(!auth.isSignInWithEmailLink(location.href))return false;
-  document.getElementById("pageLogin").style.display="none";
-  document.getElementById("pageLoginCompleting").style.display="";
-  let email=localStorage.getItem(EMAIL_FOR_SIGNIN_KEY);
-  if(!email){
-    // 別の端末でリンクを開いた場合など、メールアドレスの一時保存が無い場合は本人に入力してもらう
-    email=window.prompt("確認のため、ログインに使用したメールアドレスを入力してください。");
-  }
-  try{
-    await auth.signInWithEmailLink(email,location.href);
-    localStorage.removeItem(EMAIL_FOR_SIGNIN_KEY);
-    history.replaceState(null,"",location.origin+location.pathname); // URLからログインリンクのパラメータを消す
-  }catch(err){
-    document.getElementById("loginCompletingMessage").textContent="ログインに失敗しました。もう一度お試しください："+err.message;
-    setTimeout(()=>{document.getElementById("pageLoginCompleting").style.display="none";showLoginScreen()},3000);
-  }
-  return true;
+  // 以降の画面遷移はonAuthStateChanged（initAuth）側でまとめて行う
 }
 // ログアウトボタン押下時の処理：Firebase Authenticationのセッションを破棄してログイン画面に戻す
 async function handleLogout(){
   await auth.signOut();
   document.getElementById("login_email").value="";
-  document.getElementById("loginStep1").style.display="";
-  document.getElementById("loginStep2").style.display="none";
   document.getElementById("pageEmployeeRegister").style.display="none";
   showLoginScreen();
 }
@@ -527,13 +509,11 @@ function showLoginScreen(){
   document.getElementById("appHeader").style.display="none";
   document.getElementById("appMain").style.display="none";
   document.getElementById("pageEmployeeRegister").style.display="none";
-  document.getElementById("pageLoginCompleting").style.display="none";
   document.getElementById("pageLogin").style.display="";
 }
 // ログイン成功後、アプリ本体を表示して通常の初期描画を行う
 function enterApp(){
   document.getElementById("pageLogin").style.display="none";
-  document.getElementById("pageLoginCompleting").style.display="none";
   document.getElementById("pageEmployeeRegister").style.display="none";
   document.getElementById("appHeader").style.display="";
   document.getElementById("appMain").style.display="";
@@ -544,19 +524,16 @@ function enterApp(){
   selectMonth(currentMonth);
   showPage("top"); // ログイン直後はトップページを表示
 }
-// ページ読み込み時：まずメールリンクでの帰還かどうかを確認してログインを完了させ、
-// その後Firebase Authenticationのログイン状態を監視して画面を切り替える
-// （同じ端末・ブラウザなら次回以降もFirebaseが自動的にログイン状態を維持する）
-async function initAuth(){
-  await completeEmailLinkSignInIfNeeded();
+// ページ読み込み時：Firebase Authenticationのログイン状態を監視し、状態が変わるたびに画面を切り替える
+// （同じ端末・ブラウザなら次回以降もFirebaseが自動的にログイン状態を維持する。匿名セッションは一切使わない）
+function initAuth(){
   auth.onAuthStateChanged(async(user)=>{
-    if(user){
-      currentEmployee=await ensureUserProfile(user);
-      enterApp();
-    }else{
-      currentEmployee=null;
-      showLoginScreen();
+    if(user&&user.email){
+      const profile=await loadUserProfile(user.email);
+      if(profile){currentEmployee=profile;enterApp();return}
     }
+    currentEmployee=null;
+    showLoginScreen();
   });
 }
 /* ===================================================================
