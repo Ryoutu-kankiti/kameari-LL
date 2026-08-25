@@ -162,7 +162,7 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 <button onclick="showPage('inventory')">在庫登録</button>
 <button id="bulkMenuBtn" onclick="showPage('bulk')" style="display:none">一括登録</button>
 <button id="darkModeToggle" onclick="toggleDarkMode(event)">🌙 ダーク（ライト）モードに切り替え</button>
-<button onclick="handleLogout()">ログアウト</button>
+<button onclick="openLogoutConfirm(event)">ログアウト</button>
 </div>
 </div>
 </div>
@@ -334,6 +334,14 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 <div class="detail-actions"><button onclick="confirmSoldOutAction()">完売にする</button><button class="secondary" onclick="cancelSoldOutConfirm()">キャンセル</button></div>
 </div></div>
 
+<!-- ポップアップ6：ログアウトの確認 -->
+<div id="logoutOverlay" class="overlay" onclick="cancelLogoutConfirm(event)">
+<div class="detail-card" style="max-width:380px" onclick="event.stopPropagation()">
+<div class="detail-header"><h2>ログアウトの確認</h2><button class="close-btn" onclick="cancelLogoutConfirm()">×</button></div>
+<div class="help" style="margin-bottom:0">ログアウトしてもよろしいですか？</div>
+<div class="detail-actions"><button class="danger" onclick="handleLogout()">ログアウトする</button><button class="secondary" onclick="cancelLogoutConfirm()">キャンセル</button></div>
+</div></div>
+
 <script>
 /* ===================================================================
    【Firebase 初期化】
@@ -427,11 +435,27 @@ async function handleSignup(){
   await db.collection("users").doc(cred.user.uid).set({email,status,darkMode:false,createdAt:new Date().toISOString()});
   // 以降の画面切り替えはonAuthStateChanged（initAuth）側でまとめて行う
 }
-// ログアウトボタン押下時の処理：Firebase Authenticationのセッションを破棄してログイン画面に戻す
+// ⋮メニューの「ログアウト」押下時の処理：確認モーダルを開く
+function openLogoutConfirm(e){
+  if(e)e.stopPropagation();
+  document.getElementById("navMenu").classList.remove("show");
+  document.getElementById("logoutOverlay").classList.add("show");
+  document.body.style.overflow="hidden";
+}
+// ログアウト確認モーダルをキャンセル
+function cancelLogoutConfirm(event){
+  if(event&&event.target!==document.getElementById("logoutOverlay"))return;
+  document.getElementById("logoutOverlay").classList.remove("show");
+  document.body.style.overflow="";
+}
+// ログアウト確認モーダルの「ログアウトする」押下時の処理：Firebase Authenticationのセッションを破棄してログイン画面に戻す
 async function handleLogout(){
   await auth.signOut();
+  document.getElementById("logoutOverlay").classList.remove("show");
+  document.body.style.overflow="";
   document.getElementById("login_email").value="";
   document.getElementById("login_password").value="";
+  localStorage.removeItem(DARK_MODE_KEY); // ログイン画面はダークモードを引き継がない（常に初期表示＝ライトモードにする）
   showLoginScreen();
 }
 // ログイン画面を表示し、アプリ本体(ヘッダー・メイン)を隠す
@@ -440,6 +464,7 @@ function showLoginScreen(){
   document.getElementById("appMain").style.display="none";
   document.getElementById("pageSignup").style.display="none";
   document.getElementById("pageLogin").style.display="";
+  applyDarkModePreference(); // currentEmployeeはこの時点でnullなので、ログイン前のキャッシュ（無ければライトモード）が適用される
 }
 // ログイン成功後、アプリ本体を表示して通常の初期描画を行う
 function enterApp(){
