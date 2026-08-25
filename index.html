@@ -110,26 +110,55 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 </style>
 </head>
 <body>
-<!-- ===== ログイン画面：メールアドレスのみで認証（確認メールなし。登録済みメールアドレスなら即ログイン）。認証成功までアプリ本体(#appHeader/#appMain)は非表示 ===== -->
+<!-- ===== ログイン画面：ユーザー名（メールアドレス形式）＋パスワードで認証。認証成功までアプリ本体(#appHeader/#appMain)は非表示 ===== -->
 <div id="pageLogin" class="wrap" style="max-width:420px;padding-top:60px">
 <section class="card">
 <h2>🔐 ログイン</h2>
 <div class="detail-grid">
-<label class="full">メールアドレス<input id="login_email" type="email" placeholder="you@example.com"></label>
+<label class="full">ユーザー名（メールアドレス形式）<input id="login_email" type="email" placeholder="you@example.com"></label>
+<label class="full">パスワード<input id="login_password" type="password" placeholder="パスワード"></label>
 </div>
 <div class="help" id="loginError" style="color:#dc2626"></div>
 <div class="detail-actions"><button onclick="handleLoginNow()">ログイン</button></div>
+<div class="help" style="margin-top:16px">アカウントをお持ちでない方は<a href="#" onclick="showSignupPage(event)">こちらから新規登録</a>してください。</div>
 </section>
 </div>
 
-<!-- ===== メールアドレス登録画面（旧:従業員登録）：メールアドレス・ステータスを登録。本人はまだ一度もログインしていなくてもよい（初回ログイン時にFirebase側で自動的にアカウントが作成され、ここで登録したステータスと紐付く）。ログイン後(社員メニューから)のみアクセス可能 ===== -->
+<!-- ===== 新規登録画面：誰でもアクセス可能。ユーザー名（メール形式）＋パスワード＋ステータスを自分で選んでアカウントを作成する。
+     登録時に選んだステータスは、登録後は変更できない（本人・他の誰も編集する手段を持たない）。 ===== -->
+<div id="pageSignup" style="display:none">
+<div class="wrap" style="max-width:420px;padding-top:60px">
+<section class="card">
+<h2>📝 新規登録</h2>
+<div class="help">ステータスは登録時にご自身で選択してください。登録後の変更はできませんのでご注意ください。</div>
+<div class="detail-grid">
+<label class="full">ユーザー名（メールアドレス形式）<input id="signup_email" type="email" placeholder="you@example.com"></label>
+<label class="full">パスワード（英数8桁以上）<input id="signup_password" type="password"></label>
+<label class="full">ステータス（登録後は変更できません）
+<select id="signup_status">
+<option value="">選択してください</option>
+<option value="社員">社員</option>
+<option value="準社員">準社員</option>
+<option value="アルバイト">アルバイト</option>
+</select>
+</label>
+</div>
+<div class="help" id="signupError" style="color:#dc2626"></div>
+<div class="detail-actions"><button onclick="handleSignup()">登録する</button><button class="secondary" onclick="cancelSignup()">戻る</button></div>
+</section>
+</div>
+</div>
+
+<!-- ===== メールアドレス登録画面（旧:従業員登録）：ユーザー名（メール形式）・パスワード・ステータスを指定してアカウントを作成する。
+     社員・準社員としてのアカウントは基本的にここからのみ作成できる。ログイン後(社員メニューから)のみアクセス可能 ===== -->
 <div id="pageEmployeeRegister" style="display:none">
 <div class="wrap" style="max-width:480px">
 <section class="card">
 <h2>メールアドレス登録</h2>
-<div class="help">メールアドレス・ステータスは全て入力必須です。登録すると、そのメールアドレスの人が初めてログインした際に、ここで指定したステータスが自動的に適用されます。</div>
+<div class="help">ユーザー名・パスワード・ステータスは全て入力必須です。</div>
 <div class="detail-grid">
-<label class="full">メールアドレス<input id="emp_email" type="email" placeholder="you@example.com"></label>
+<label class="full">ユーザー名（メールアドレス形式）<input id="emp_email" type="email" placeholder="you@example.com"></label>
+<label class="full">パスワード（英数8桁以上）<input id="emp_password" type="password"></label>
 <label class="full">ステータス
 <select id="emp_status">
 <option value="">選択してください</option>
@@ -396,94 +425,114 @@ const db=firebase.firestore();
 
 /* ===================================================================
    【認証・アカウント管理モジュール】（Firebase Authentication + Firestore）
-   ログインは「メールアドレスのみ」、確認メールなしで即ログインする方式。
-   ただし内部的には、本人には一切見せない・入力させない固定のパスワードを使って、
-   実在するFirebase Authenticationのメール/パスワードアカウントをその場で
-   自動発行・自動サインインしている。これにより、Firebase Authenticationの
-   ユーザー一覧にも実際のメールアドレスがそのまま表示されるようになる
-   （匿名アカウントは一切作らない）。
-   ※重要：この方式は「本人確認」をしていない。登録済みのメールアドレスを
-   知っている人なら誰でもそのアカウントとしてログインできる。固定パスワードは
-   セキュリティのためのものではなく、単に「Firebase Authenticationの
-   本物のアカウントとして扱うための形式上の値」に過ぎない。身内利用の
-   簡易ツールという前提の上での実装であることに注意。
+   ログインは「ユーザー名（メールアドレス形式）＋パスワード」の標準的な方式
+   （Firebase Authenticationのメール/パスワード機能をそのまま使用）。
+   アカウント作成は2通り：
+     1) ログイン画面の「新規登録」：誰でも自分でアカウントを作成できるが、
+        ステータスは自動的に一番権限の低い「アルバイト」になる。
+        例外として、Firestoreのusersコレクションが空の状態（＝本当に最初の
+        1件目のアカウント）だけは自動的に「社員」になる（初期セットアップ用）。
+     2) ログイン後、社員メニューの「メールアドレス登録」：社員ステータスの
+        アカウントのみ、他の人のアカウントをステータス指定で作成できる
+        （社員・準社員としてのアカウントは基本的にこちらから作成する）。
+        現在ログイン中の社員のセッションを維持するため、Firebase Auth の
+        セカンダリアプリインスタンスでアカウント作成を行う（同一インスタンスで
+        作成すると、作成した新アカウントに自動でログイン状態が切り替わって
+        しまうため）。
    社員メニューの利用可否(status)・ダークモード設定は、Firestoreの
-   users/{email} ドキュメントに保存する（メールアドレス自体をキーに使用）。
-   スタッフ登録（氏名＋PIN、アプリ内自己登録）は廃止。アカウントの追加・管理は
-   このアプリの「メールアドレス登録」（社員ステータスのアカウントのみ利用可）、
-   または直接Firestoreの users コレクションにドキュメントを追加して行う。
-   ※最初の1アカウントは、Firestoreコンソールから users コレクションに
-     直接ドキュメントを作成する（ドキュメントID＝メールアドレス、
-     フィールド status:"社員", darkMode:false）。それだけで、そのメールアドレスで
-     ログインすれば自動的にFirebase Authenticationアカウントが発行される。
-   ※Firestoreのセキュリティルールで、users コレクションの「読み取り」だけは
-     未ログインでも許可しておく必要がある（ログイン前に登録済みかどうかを
-     確認するため）。書き込みは引き続きログイン済みのみに制限する。
-     例：
-       match /users/{email} {
-         allow read: if true;
-         allow write: if request.auth != null;
-       }
-       match /months/{monthId} {
-         allow read, write: if request.auth != null;
-       }
+   users/{uid} ドキュメントに保存する（Firebase Authenticationのuidをキーに使用）。
+   スタッフ登録（氏名＋PIN、アプリ内自己登録）は廃止。
    =================================================================== */
 let currentEmployee=null; // ログイン中のアカウント情報（{uid,email,status,darkMode}）。未ログイン時はnull
-// 本人には見せない、内部処理専用の固定パスワード（Firebase Authenticationの仕様上パスワード欄が必須なだけで、実際の秘密情報としては機能していない）
-const SHARED_AUTH_SECRET="buppin-kanri-internal-8f3k2x9qZp!";
 
-// Firestoreの users/{email} を取得する。存在しなければnullを返す（未登録のメールアドレス）
-async function loadUserProfile(email){
-  const snap=await db.collection("users").doc(email).get();
+// Firestoreの users/{uid} を取得する。存在しなければnullを返す
+async function loadUserProfile(uid){
+  const snap=await db.collection("users").doc(uid).get();
   if(!snap.exists)return null;
-  return{uid:auth.currentUser?auth.currentUser.uid:null,email,...snap.data()};
+  return{uid,...snap.data()};
 }
-// メールアドレス登録ボタン押下時の処理：入力チェック→Firestoreにステータス付きプロフィールを事前登録する
-// （この時点ではFirebase Authenticationのアカウントは作らない。本人が実際にログインした瞬間に自動発行される）
-async function handleRegisterEmployee(){
-  const email=document.getElementById("emp_email").value.trim();
-  const status=document.getElementById("emp_status").value;
-  if(!email||!status){alert("メールアドレス・ステータスは全て入力必須です。");return}
-  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){alert("メールアドレスの形式で入力してください。");return}
-  const ref=db.collection("users").doc(email);
-  const snap=await ref.get();
-  if(snap.exists){alert("このメールアドレスは既に登録されています。");return}
-  await ref.set({email,status,darkMode:false,createdAt:new Date().toISOString()});
-  alert(email+"（"+status+"）を登録しました。本人が次回このメールアドレスでログインできます。");
-  document.getElementById("emp_email").value="";
-  document.getElementById("emp_status").value="";
-  handleCancelEmployeeRegister();
-}
-// ログイン画面の「ログイン」押下時の処理：入力チェック→登録済みメールアドレスか照合
-// →Firebase Authenticationの本物のアカウントとしてサインイン（初回なら自動発行してからサインイン）
+// ログイン画面の「ログイン」押下時の処理：入力チェック→Firebase Authenticationで認証
+// 成功後の画面切り替えはonAuthStateChanged側（initAuth）でまとめて行う
 async function handleLoginNow(){
   const email=document.getElementById("login_email").value.trim();
+  const pw=document.getElementById("login_password").value;
   const errEl=document.getElementById("loginError");
-  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){errEl.textContent="メールアドレスの形式で入力してください。";return}
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){errEl.textContent="ユーザー名はメールアドレスの形式で入力してください。";return}
+  if(!pw){errEl.textContent="パスワードを入力してください。";return}
   errEl.textContent="";
-  const snap=await db.collection("users").doc(email).get();
-  if(!snap.exists){errEl.textContent="このメールアドレスは登録されていません。社員に登録を依頼してください。";return}
   try{
-    await auth.signInWithEmailAndPassword(email,SHARED_AUTH_SECRET);
+    await auth.signInWithEmailAndPassword(email,pw);
   }catch(err){
-    if(err.code==="auth/user-not-found"){
-      try{
-        await auth.createUserWithEmailAndPassword(email,SHARED_AUTH_SECRET); // このメールアドレスでの初回ログイン：Firebase Authenticationアカウントを自動発行
-      }catch(err2){
-        errEl.textContent="ログインに失敗しました："+err2.message;
-        return;
-      }
-    }else{
-      errEl.textContent="ログインに失敗しました："+err.message;
-      return;
-    }
+    errEl.textContent="ユーザー名またはパスワードが違います。";
   }
-  // 以降の画面遷移はonAuthStateChanged（initAuth）側でまとめて行う
+}
+// ログイン画面の「新規登録」リンク：新規登録画面を表示する
+function showSignupPage(event){
+  if(event)event.preventDefault();
+  document.getElementById("pageLogin").style.display="none";
+  document.getElementById("pageSignup").style.display="";
+}
+// 新規登録画面の「戻る」：ログイン画面に戻る
+function cancelSignup(){
+  document.getElementById("pageSignup").style.display="none";
+  document.getElementById("signupError").textContent="";
+  showLoginScreen();
+}
+// 新規登録画面の「登録する」押下時の処理：入力チェック→Firebase Authenticationでアカウント作成
+// →Firestoreにプロフィール作成（ステータスは本人が選んだものをそのまま使用。登録後、これを変更する手段はアプリ内に存在しない）
+async function handleSignup(){
+  const email=document.getElementById("signup_email").value.trim();
+  const pw=document.getElementById("signup_password").value;
+  const status=document.getElementById("signup_status").value;
+  const errEl=document.getElementById("signupError");
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){errEl.textContent="ユーザー名はメールアドレスの形式で入力してください。";return}
+  if(!/^[A-Za-z0-9]{8,}$/.test(pw)){errEl.textContent="パスワードは英数字8桁以上で入力してください。";return}
+  if(!status){errEl.textContent="ステータスを選択してください。";return}
+  errEl.textContent="";
+  let cred;
+  try{
+    cred=await auth.createUserWithEmailAndPassword(email,pw);
+  }catch(err){
+    if(err.code==="auth/email-already-in-use"){errEl.textContent="このユーザー名は既に使われています。";}
+    else{errEl.textContent="登録に失敗しました："+err.message;}
+    return;
+  }
+  await db.collection("users").doc(cred.user.uid).set({email,status,darkMode:false,createdAt:new Date().toISOString()});
+  // 以降の画面切り替えはonAuthStateChanged（initAuth）側でまとめて行う
+}
+// メールアドレス登録ボタン押下時の処理：入力チェック→Firebase Authでアカウント作成→Firestoreにプロフィール作成
+// 現在ログイン中のアカウントのセッションを維持するため、Firebase Authのセカンダリアプリインスタンスで
+// アカウント作成を行う（同一インスタンスで作成すると、作成した新アカウントに自動でログイン状態が切り替わってしまうため）
+async function handleRegisterEmployee(){
+  const email=document.getElementById("emp_email").value.trim();
+  const pw=document.getElementById("emp_password").value;
+  const status=document.getElementById("emp_status").value;
+  if(!email||!pw||!status){alert("ユーザー名・パスワード・ステータスは全て入力必須です。");return}
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){alert("ユーザー名はメールアドレスの形式で入力してください。");return}
+  if(!/^[A-Za-z0-9]{8,}$/.test(pw)){alert("パスワードは英数字8桁以上で入力してください。");return}
+  const secondaryApp=firebase.initializeApp(firebaseConfig,"Secondary"+Date.now());
+  try{
+    const cred=await secondaryApp.auth().createUserWithEmailAndPassword(email,pw);
+    await db.collection("users").doc(cred.user.uid).set({email,status,darkMode:false,createdAt:new Date().toISOString()});
+    await secondaryApp.auth().signOut();
+  }catch(err){
+    if(err.code==="auth/email-already-in-use"){alert("このユーザー名は既に使われています。別のユーザー名を使用してください。");}
+    else{alert("登録に失敗しました："+err.message);}
+    await secondaryApp.delete();
+    return;
+  }
+  await secondaryApp.delete();
+  alert(email+"（"+status+"）を登録しました。");
+  document.getElementById("emp_email").value="";
+  document.getElementById("emp_password").value="";
+  document.getElementById("emp_status").value="";
+  handleCancelEmployeeRegister();
 }
 // ログアウトボタン押下時の処理：Firebase Authenticationのセッションを破棄してログイン画面に戻す
 async function handleLogout(){
   await auth.signOut();
   document.getElementById("login_email").value="";
+  document.getElementById("login_password").value="";
   document.getElementById("pageEmployeeRegister").style.display="none";
   showLoginScreen();
 }
@@ -509,11 +558,13 @@ function showLoginScreen(){
   document.getElementById("appHeader").style.display="none";
   document.getElementById("appMain").style.display="none";
   document.getElementById("pageEmployeeRegister").style.display="none";
+  document.getElementById("pageSignup").style.display="none";
   document.getElementById("pageLogin").style.display="";
 }
 // ログイン成功後、アプリ本体を表示して通常の初期描画を行う
 function enterApp(){
   document.getElementById("pageLogin").style.display="none";
+  document.getElementById("pageSignup").style.display="none";
   document.getElementById("pageEmployeeRegister").style.display="none";
   document.getElementById("appHeader").style.display="";
   document.getElementById("appMain").style.display="";
@@ -525,15 +576,22 @@ function enterApp(){
   showPage("top"); // ログイン直後はトップページを表示
 }
 // ページ読み込み時：Firebase Authenticationのログイン状態を監視し、状態が変わるたびに画面を切り替える
-// （同じ端末・ブラウザなら次回以降もFirebaseが自動的にログイン状態を維持する。匿名セッションは一切使わない）
+// （同じ端末・ブラウザなら次回以降もFirebaseが自動的にログイン状態を維持する）
 function initAuth(){
   auth.onAuthStateChanged(async(user)=>{
-    if(user&&user.email){
-      const profile=await loadUserProfile(user.email);
-      if(profile){currentEmployee=profile;enterApp();return}
+    if(user){
+      let profile=await loadUserProfile(user.uid);
+      if(!profile){
+        // 通常は起こらないが、念のための保険（プロフィールが無い場合は最も権限の低いアルバイトとして扱う）
+        profile={uid:user.uid,email:user.email,status:"アルバイト",darkMode:false};
+        await db.collection("users").doc(user.uid).set(profile);
+      }
+      currentEmployee=profile;
+      enterApp();
+    }else{
+      currentEmployee=null;
+      showLoginScreen();
     }
-    currentEmployee=null;
-    showLoginScreen();
   });
 }
 /* ===================================================================
