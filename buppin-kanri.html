@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>景品管理</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- ===== Firebase SDK（compat版：モジュールバンドラを使わない単一HTML構成のため） ===== -->
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <style>
 /* ===== 全体共通・基本レイアウト ===== */
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}html{-webkit-text-size-adjust:100%}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f5f7fb;color:#222}
@@ -106,49 +110,39 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 </style>
 </head>
 <body>
-<!-- ===== ログイン画面：メールアドレスとパスワードで認証。認証成功までアプリ本体(#appHeader/#appMain)は非表示 ===== -->
+<!-- ===== ログイン画面：メールアドレスのみで認証（Firebase Authenticationのメールリンク＝マジックリンク方式）。認証成功までアプリ本体(#appHeader/#appMain)は非表示 ===== -->
 <div id="pageLogin" class="wrap" style="max-width:420px;padding-top:60px">
 <section class="card">
 <h2>🔐 ログイン</h2>
+<div id="loginStep1">
 <div class="detail-grid">
 <label class="full">メールアドレス<input id="login_email" type="email" placeholder="you@example.com"></label>
-<label class="full">パスワード<input id="login_password" type="password" placeholder="パスワード"></label>
 </div>
 <div class="help" id="loginError" style="color:#dc2626"></div>
-<div class="detail-actions"><button onclick="handleLogin()">ログイン</button></div>
-<div id="firstSetupHint" style="display:none;margin-top:16px">
-<div class="help">まだアカウントが1件も登録されていません。最初のアカウントを作成してください。</div>
-<div class="detail-actions"><button class="secondary" onclick="goToInitialSetup()">初回登録はこちら</button></div>
+<div class="detail-actions"><button onclick="handleSendLoginLink()">ログイン用リンクを送信</button></div>
+</div>
+<div id="loginStep2" style="display:none">
+<div class="help" id="loginSentMessage"></div>
 </div>
 </section>
 </div>
 
-<!-- ===== 初回登録画面：アカウントが1件も無い場合のみログイン画面から到達できる例外フロー。ステータスは社員固定で、メールアドレス登録とスタッフ登録をまとめて1回で行う ===== -->
-<div id="pageInitialSetup" style="display:none">
-<div class="wrap" style="max-width:480px;padding-top:60px">
+<!-- ===== メール確認用の中継画面：メールリンクをクリックして戻ってきた直後、ログイン処理が終わるまで表示 ===== -->
+<div id="pageLoginCompleting" class="wrap" style="max-width:420px;padding-top:60px;display:none">
 <section class="card">
-<h2>初回登録</h2>
-<div class="help">最初の1人はステータス「社員」として登録されます。メールアドレス・パスワード・氏名・PINは全て入力必須です。</div>
-<div class="detail-grid">
-<label class="full">メールアドレス<input id="init_email" type="email" placeholder="you@example.com"></label>
-<label class="full">パスワード（英数8桁以上）<input id="init_password" type="password"></label>
-<label class="full">氏名<input id="init_name" type="text"></label>
-<label class="full">PIN（数字4桁）<input id="init_pin" type="password" inputmode="numeric" maxlength="4" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,4)"></label>
-</div>
-<div class="detail-actions"><button onclick="handleInitialSetup()">登録してはじめる</button><button class="secondary" onclick="cancelInitialSetup()">戻る</button></div>
+<h2>🔐 ログイン処理中…</h2>
+<div class="help" id="loginCompletingMessage">しばらくお待ちください。</div>
 </section>
 </div>
-</div>
 
-<!-- ===== メールアドレス登録画面（旧:従業員登録）：メールアドレス・パスワード・ステータスを登録。ログイン用アカウントを作成する画面。ログイン前(初回設定時)とログイン後(社員メニューから)の両方からアクセス可能 ===== -->
+<!-- ===== メールアドレス登録画面（旧:従業員登録）：メールアドレス・ステータスを登録。本人はまだ一度もログインしていなくてもよい（初回ログイン時にFirebase側で自動的にアカウントが作成され、ここで登録したステータスと紐付く）。ログイン後(社員メニューから)のみアクセス可能 ===== -->
 <div id="pageEmployeeRegister" style="display:none">
 <div class="wrap" style="max-width:480px">
 <section class="card">
 <h2>メールアドレス登録</h2>
-<div class="help">メールアドレス・パスワード・ステータスは全て入力必須です。</div>
+<div class="help">メールアドレス・ステータスは全て入力必須です。登録すると、そのメールアドレスの人が初めてログインした際に、ここで指定したステータスが自動的に適用されます。</div>
 <div class="detail-grid">
 <label class="full">メールアドレス<input id="emp_email" type="email" placeholder="you@example.com"></label>
-<label class="full">パスワード（英数8桁以上）<input id="emp_password" type="password"></label>
 <label class="full">ステータス
 <select id="emp_status">
 <option value="">選択してください</option>
@@ -159,21 +153,6 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 </label>
 </div>
 <div class="detail-actions"><button onclick="handleRegisterEmployee()">登録する</button><button class="secondary" onclick="handleCancelEmployeeRegister()">戻る</button></div>
-</section>
-</div>
-</div>
-
-<!-- ===== スタッフ登録画面：氏名・4桁PINを登録。「今、誰が操作しているか」の表示・記録用（ログインアカウントの権限とは別軸）。社員メニューのため社員ステータスのみ到達可能 ===== -->
-<div id="pageStaffRegister" style="display:none">
-<div class="wrap" style="max-width:480px">
-<section class="card">
-<h2>スタッフ登録</h2>
-<div class="help">氏名・PIN（数字4桁）は入力必須です。</div>
-<div class="detail-grid">
-<label class="full">氏名<input id="staff_name" type="text"></label>
-<label class="full">PIN（数字4桁）<input id="staff_pin" type="password" inputmode="numeric" maxlength="4" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,4)"></label>
-</div>
-<div class="detail-actions"><button onclick="handleRegisterStaff()">登録する</button><button class="secondary" onclick="handleCancelStaffRegister()">戻る</button></div>
 </section>
 </div>
 </div>
@@ -196,7 +175,6 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 <button onclick="showPage('register')">景品を登録</button>
 <button onclick="showPage('bulk')">エクセルから一括登録</button>
 <button onclick="showEmployeeRegisterPage()">メールアドレス登録</button>
-<button onclick="showStaffRegisterPage()">スタッフ登録</button>
 </div>
 <button id="darkModeToggle" onclick="toggleDarkMode(event)">🌙 ダークモード</button>
 <button onclick="handleLogout()">ログアウト</button>
@@ -214,10 +192,9 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 </section>
 <section class="card" style="margin-top:16px">
 <h2>社員メニュー</h2>
-<div class="help">メールアドレス登録・スタッフ登録・景品登録・エクセルからの一括登録は、社員ステータスのアカウントのみ操作できます。</div>
+<div class="help">メールアドレス登録・景品登録・エクセルからの一括登録は、社員ステータスのアカウントのみ操作できます。</div>
 <div class="detail-actions" style="flex-direction:column">
 <button class="secondary" onclick="showEmployeeRegisterPage()">メールアドレス登録</button>
-<button class="secondary" onclick="showStaffRegisterPage()">スタッフ登録</button>
 <button class="secondary" onclick="showPage('register')">景品登録</button>
 <button class="secondary" onclick="showPage('bulk')">エクセルファイルからの一括登録</button>
 </div>
@@ -416,148 +393,119 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 
 <script>
 /* ===================================================================
-   【認証・アカウント管理モジュール】
-   現時点ではブラウザのlocalStorageにデータを保存しているが、
-   将来サーバーを用いた運用に切り替える際は、下記の「データアクセス関数」
-   （fetchEmployees/persistEmployees/authenticateEmployee/registerNewEmployee）
-   の中身だけをサーバーAPIへのfetch呼び出しに差し替えれば、
-   画面側(handleLogin等)のコードは変更せずに移行できるように設計している。
-   ログインは「メールアドレス＋パスワード」で行う（従業員コード方式は廃止）。
-   社員メニューの利用可否(status)は、このメールアドレス単位のアカウントに紐づく。
-   「今、実際に操作しているのが誰か」の記録・表示は、別途スタッフ登録
-   （氏名＋4桁PIN）で行う想定（本アプリ側では未実装。Firebase移行時に追加）。
-   パスワードはSHA-256でハッシュ化してから保存する（平文保存はしない）。
-   ※本番でサーバー運用に切り替える際は、送信経路のTLS化とサーバー側での
-     ソルト付きハッシュ(bcrypt等)への置き換えを推奨する。
-   =================================================================== */
-const EMP_KEY="buppin-kanri-employees-v1"; // アカウントデータの保存キー（将来:サーバーのテーブル名に相当）
-const SESSION_KEY="buppin-kanri-session-v1"; // ログイン中のメールアドレスを保持するキー（将来:セッショントークンに相当）
-let currentEmployee=null; // ログイン中のアカウント情報（{email,status,...}）。未ログイン時はnull
-
-// --- ここから下がデータアクセス関数（サーバー化する際はこの4つを置き換える） ---
-// アカウント一覧を取得する（将来:サーバーからGETする処理に差し替え）
-function fetchEmployees(){return JSON.parse(localStorage.getItem(EMP_KEY)||"[]")}
-// アカウント一覧を保存する（将来:サーバーへPOST/PUTする処理に差し替え）
-function persistEmployees(list){localStorage.setItem(EMP_KEY,JSON.stringify(list))}
-// 文字列をSHA-256でハッシュ化する（ブラウザ標準のWeb Crypto APIを使用。追加ライブラリ不要）
-async function sha256Hex(text){
-  const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(text));
-  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
-}
-// メールアドレス・パスワードで認証する（将来:サーバーへのログインAPI呼び出しに差し替え）。一致するアカウント情報を返す。一致しなければnull
-async function authenticateEmployee(email,password){
-  const hash=await sha256Hex(password);
-  const list=fetchEmployees();
-  return list.find(e=>e.email===email&&e.passwordHash===hash)||null;
-}
-// 新しいアカウントを登録する（将来:サーバーへの登録API呼び出しに差し替え）。メールアドレス重複時はnullを返す
-async function registerNewEmployee(email,password,status){
-  const list=fetchEmployees();
-  if(list.some(e=>e.email===email))return null;
-  const hash=await sha256Hex(password);
-  const emp={id:Date.now(),email,passwordHash:hash,status,createdAt:new Date().toISOString()};
-  list.push(emp);
-  persistEmployees(list);
-  return emp;
-}
-// --- ここまでがデータアクセス関数 ---
+   【Firebase 初期化】
+   ===================================================================*/
+const firebaseConfig={
+  apiKey:"AIzaSyBHtjgZimpU5o3k9dp60WN8PzGzP78ev8I",
+  authDomain:"ll-kameari.firebaseapp.com",
+  projectId:"ll-kameari",
+  storageBucket:"ll-kameari.firebasestorage.app",
+  messagingSenderId:"563523098764",
+  appId:"1:563523098764:web:369249e55993df028143a9"
+};
+firebase.initializeApp(firebaseConfig);
+const auth=firebase.auth();
+const db=firebase.firestore();
 
 /* ===================================================================
-   【スタッフ管理モジュール】
-   「今、実際に操作しているのは誰か」を記録・表示するための、氏名＋4桁PINの
-   スタッフ一覧。ログインアカウント(メールアドレス)とは別軸のデータで、
-   全アカウント共通の1つのスタッフ一覧として扱う。
-   PINは本人確認ではなく表示切り替えの位置づけのため、社員メニューの
-   利用可否などの権限制御には使わない（権限はあくまでログイン中の
-   メールアカウントのstatusで決まる）。PINはSHA-256でハッシュ化して保存する。
+   【認証・アカウント管理モジュール】（Firebase Authentication + Firestore）
+   ログインは「メールアドレスのみ」で行う（Firebase Authenticationのメールリンク＝
+   マジックリンク方式。パスワードは使わない）。メールアドレスを入力すると
+   ログイン用リンクが記載されたメールが届き、そのリンクをクリックすると
+   ログインが完了する。
+   社員メニューの利用可否(status)・ダークモード設定は、Firestoreの
+   users/{email} ドキュメントに保存する（メールアドレス自体をキーに使用。
+   Firebase Authenticationのuidは、メールリンクでの初回ログイン時に
+   Firebase側が自動的に発行するため、事前登録の時点ではまだ存在しないことによる）。
+   スタッフ登録（氏名＋PIN、アプリ内自己登録）は廃止。アカウントの追加・管理は
+   Firebase Authenticationコンソール、またはこのアプリの「メールアドレス登録」
+   （社員ステータスのアカウントのみ利用可）から行う。
+   ※最初の1アカウントは、Firestoreの users コレクションに直接ドキュメントを
+     作成（ドキュメントID＝メールアドレス、フィールド status:"社員" 等）するか、
+     もしくは何もせずログインすればステータス「社員」として自動的にプロフィールが
+     作成される（下記ensureUserProfile参照）。
+   ※メールリンク認証を使うには、Firebaseコンソールの Authentication→Sign-in method
+     →メール/パスワード→「メールリンク（パスワードなしでログイン）」を有効にし、
+     このページを実際に配信するドメインを Authentication→Settings→
+     承認済みドメイン に追加しておく必要がある（file://では動作しない）。
    =================================================================== */
-const STAFF_KEY="buppin-kanri-staff-v1"; // スタッフ一覧の保存キー（将来:サーバーのテーブル名に相当）
-// スタッフ一覧を取得する（将来:サーバーからGETする処理に差し替え）
-function fetchStaffList(){return JSON.parse(localStorage.getItem(STAFF_KEY)||"[]")}
-// スタッフ一覧を保存する（将来:サーバーへPOST/PUTする処理に差し替え）
-function persistStaffList(list){localStorage.setItem(STAFF_KEY,JSON.stringify(list))}
-// 新しいスタッフ（氏名＋PIN）を登録する（将来:サーバーへの登録API呼び出しに差し替え）
-async function registerNewStaff(name,pin){
-  const hash=await sha256Hex(pin);
-  const staff={id:Date.now(),name,pinHash:hash,createdAt:new Date().toISOString()};
-  const list=fetchStaffList();
-  list.push(staff);
-  persistStaffList(list);
-  return staff;
-}
-// スタッフ登録ボタン押下時の処理：入力チェック→登録
-async function handleRegisterStaff(){
-  const name=document.getElementById("staff_name").value.trim();
-  const pin=document.getElementById("staff_pin").value;
-  if(!name||!pin){alert("氏名・PINは全て入力必須です。");return}
-  if(!/^\d{4}$/.test(pin)){alert("PINは数字4桁で入力してください。");return}
-  await registerNewStaff(name,pin);
-  alert(name+"さんを登録しました。");
-  document.getElementById("staff_name").value="";
-  document.getElementById("staff_pin").value="";
-  handleCancelStaffRegister();
-}
-// スタッフ登録画面の「戻る」：アプリ本体へ戻る（社員ステータスでログイン中のみ到達できる画面のため）
-function handleCancelStaffRegister(){
-  document.getElementById("pageStaffRegister").style.display="none";
-  document.getElementById("appMain").style.display="";
-}
-// ヘッダー／トップページのメニューからスタッフ登録を開く（ログイン中かつ社員ステータスのみ到達可能）
-function showStaffRegisterPage(){
-  if(!isStaff()){
-    alert("この機能は社員ステータスのアカウントのみ利用できます。");
-    document.getElementById("navMenu").classList.remove("show");
-    return;
-  }
-  document.getElementById("navMenu").classList.remove("show");
-  document.getElementById("appMain").style.display="none";
-  document.getElementById("pageStaffRegister").style.display="";
-}
-/* ===== スタッフ管理モジュールここまで ===== */
+let currentEmployee=null; // ログイン中のアカウント情報（{uid,email,status,darkMode}）。未ログイン時はnull
+const EMAIL_FOR_SIGNIN_KEY="buppin-kanri-email-for-signin"; // リンクをクリックして戻ってきた際に本人確認に使うメールアドレスの一時保存先
 
-// ログインボタン押下時の処理：入力チェック→認証→成功ならアプリ本体を表示
-async function handleLogin(){
-  const email=document.getElementById("login_email").value.trim();
-  const pw=document.getElementById("login_password").value;
-  const errEl=document.getElementById("loginError");
-  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){errEl.textContent="メールアドレスの形式で入力してください。";return}
-  if(!pw){errEl.textContent="パスワードを入力してください。";return}
-  const emp=await authenticateEmployee(email,pw);
-  if(!emp){errEl.textContent="メールアドレスまたはパスワードが違います。";return}
-  errEl.textContent="";
-  currentEmployee=emp;
-  localStorage.setItem(SESSION_KEY,emp.email); // 同じ端末・ブラウザなら次回以降ログイン状態を維持
-  enterApp();
+// Firestoreの users/{email} を取得する。無ければ（＝初めてログインする人、または管理者が
+// 事前登録していない場合）ステータス「社員」・ダークモードOFFの初期プロフィールを作成して返す
+async function ensureUserProfile(user){
+  const ref=db.collection("users").doc(user.email);
+  const snap=await ref.get();
+  if(snap.exists)return{uid:user.uid,email:user.email,...snap.data()};
+  const profile={email:user.email,status:"社員",darkMode:false,createdAt:new Date().toISOString()};
+  await ref.set(profile);
+  return{uid:user.uid,...profile};
 }
-// ログアウトボタン押下時の処理：セッションを破棄してログイン画面に戻す
-function handleLogout(){
-  currentEmployee=null;
-  localStorage.removeItem(SESSION_KEY);
-  document.getElementById("login_email").value="";
-  document.getElementById("login_password").value="";
-  document.getElementById("pageEmployeeRegister").style.display="none";
-  document.getElementById("pageStaffRegister").style.display="none";
-  document.getElementById("pageInitialSetup").style.display="none";
-  showLoginScreen();
-}
-// 従業員登録ボタン押下時の処理：入力チェック→重複チェック→登録
-// メールアドレス登録ボタン押下時の処理：入力チェック→重複チェック→登録
+// メールアドレス登録ボタン押下時の処理：入力チェック→Firestoreにステータス付きプロフィールを事前登録する
+// （本人はまだ一度もログインしていなくてよい。初めてログインリンクでログインした瞬間に、
+//   Firebase Authenticationのアカウントが自動発行され、このプロフィールと紐付く）
 async function handleRegisterEmployee(){
   const email=document.getElementById("emp_email").value.trim();
-  const pw=document.getElementById("emp_password").value;
   const status=document.getElementById("emp_status").value;
-  if(!email||!pw||!status){alert("メールアドレス・パスワード・ステータスは全て入力必須です。");return}
+  if(!email||!status){alert("メールアドレス・ステータスは全て入力必須です。");return}
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){alert("メールアドレスの形式で入力してください。");return}
-  if(!/^[A-Za-z0-9]{8,}$/.test(pw)){alert("パスワードは英数字8桁以上で入力してください。");return}
-  const emp=await registerNewEmployee(email,pw,status);
-  if(!emp){alert("このメールアドレスは既に登録されています。別のメールアドレスを使用してください。");return}
-  alert(email+"（"+status+"）を登録しました。");
+  const ref=db.collection("users").doc(email);
+  const snap=await ref.get();
+  if(snap.exists){alert("このメールアドレスは既に登録されています。");return}
+  await ref.set({email,status,darkMode:false,createdAt:new Date().toISOString()});
+  alert(email+"（"+status+"）を登録しました。本人が次回このメールアドレスでログインすると、このステータスが適用されます。");
   document.getElementById("emp_email").value="";
-  document.getElementById("emp_password").value="";
   document.getElementById("emp_status").value="";
   handleCancelEmployeeRegister();
 }
-// メールアドレス登録画面の「戻る」：ログイン前なら初回設定に応じてログイン画面へ、ログイン後ならアプリ本体へ戻る
+// ログイン画面の「ログイン用リンクを送信」押下時の処理：入力チェック→Firebase Authenticationにログインリンクの送信を依頼
+async function handleSendLoginLink(){
+  const email=document.getElementById("login_email").value.trim();
+  const errEl=document.getElementById("loginError");
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){errEl.textContent="メールアドレスの形式で入力してください。";return}
+  errEl.textContent="";
+  const actionCodeSettings={url:location.origin+location.pathname,handleCodeInApp:true};
+  try{
+    await auth.sendSignInLinkToEmail(email,actionCodeSettings);
+    localStorage.setItem(EMAIL_FOR_SIGNIN_KEY,email); // 同じ端末・ブラウザでリンクを開いたときに本人確認に使う
+    document.getElementById("loginStep1").style.display="none";
+    document.getElementById("loginStep2").style.display="";
+    document.getElementById("loginSentMessage").textContent=email+" 宛にログイン用のリンクを送信しました。メール内のリンクをクリックしてログインしてください。";
+  }catch(err){
+    errEl.textContent="リンクの送信に失敗しました："+err.message;
+  }
+}
+// ページ読み込み時：URLがメールリンク（ログインリンク）かどうかを確認し、そうであればログインを完了させる
+async function completeEmailLinkSignInIfNeeded(){
+  if(!auth.isSignInWithEmailLink(location.href))return false;
+  document.getElementById("pageLogin").style.display="none";
+  document.getElementById("pageLoginCompleting").style.display="";
+  let email=localStorage.getItem(EMAIL_FOR_SIGNIN_KEY);
+  if(!email){
+    // 別の端末でリンクを開いた場合など、メールアドレスの一時保存が無い場合は本人に入力してもらう
+    email=window.prompt("確認のため、ログインに使用したメールアドレスを入力してください。");
+  }
+  try{
+    await auth.signInWithEmailLink(email,location.href);
+    localStorage.removeItem(EMAIL_FOR_SIGNIN_KEY);
+    history.replaceState(null,"",location.origin+location.pathname); // URLからログインリンクのパラメータを消す
+  }catch(err){
+    document.getElementById("loginCompletingMessage").textContent="ログインに失敗しました。もう一度お試しください："+err.message;
+    setTimeout(()=>{document.getElementById("pageLoginCompleting").style.display="none";showLoginScreen()},3000);
+  }
+  return true;
+}
+// ログアウトボタン押下時の処理：Firebase Authenticationのセッションを破棄してログイン画面に戻す
+async function handleLogout(){
+  await auth.signOut();
+  document.getElementById("login_email").value="";
+  document.getElementById("loginStep1").style.display="";
+  document.getElementById("loginStep2").style.display="none";
+  document.getElementById("pageEmployeeRegister").style.display="none";
+  showLoginScreen();
+}
+// メールアドレス登録画面の「戻る」：ログイン後ならアプリ本体へ戻る
 function handleCancelEmployeeRegister(){
   document.getElementById("pageEmployeeRegister").style.display="none";
   if(currentEmployee){document.getElementById("appMain").style.display=""}
@@ -579,155 +527,144 @@ function showLoginScreen(){
   document.getElementById("appHeader").style.display="none";
   document.getElementById("appMain").style.display="none";
   document.getElementById("pageEmployeeRegister").style.display="none";
-  document.getElementById("pageStaffRegister").style.display="none";
-  document.getElementById("pageInitialSetup").style.display="none";
+  document.getElementById("pageLoginCompleting").style.display="none";
   document.getElementById("pageLogin").style.display="";
-  document.getElementById("firstSetupHint").style.display=fetchEmployees().length===0?"":"none";
 }
 // ログイン成功後、アプリ本体を表示して通常の初期描画を行う
 function enterApp(){
   document.getElementById("pageLogin").style.display="none";
+  document.getElementById("pageLoginCompleting").style.display="none";
   document.getElementById("pageEmployeeRegister").style.display="none";
-  document.getElementById("pageStaffRegister").style.display="none";
-  document.getElementById("pageInitialSetup").style.display="none";
   document.getElementById("appHeader").style.display="";
   document.getElementById("appMain").style.display="";
   document.getElementById("loggedInName").textContent=currentEmployee.email+"（"+currentEmployee.status+"）";
+  applyDarkModePreference();
   initStockFilterOptions();
-  ensureMonths();renderMonths();render();
+  renderMonths();
+  selectMonth(currentMonth);
   showPage("top"); // ログイン直後はトップページを表示
 }
-// ログイン画面の「初回登録はこちら」：ログイン画面を隠して初回登録画面を表示
-function goToInitialSetup(){
-  document.getElementById("pageLogin").style.display="none";
-  document.getElementById("pageInitialSetup").style.display="";
-}
-// 初回登録画面の「戻る」：ログイン画面に戻る
-function cancelInitialSetup(){
-  document.getElementById("pageInitialSetup").style.display="none";
-  showLoginScreen();
-}
-// 初回登録ボタン押下時の処理：アカウント0件の場合の例外フローとして、メールアドレス登録(ステータスは社員固定)とスタッフ登録をまとめて行い、そのままログインする
-async function handleInitialSetup(){
-  if(fetchEmployees().length>0){
-    alert("既にアカウントが登録されているため、初回登録はご利用いただけません。通常のログインをご利用ください。");
-    cancelInitialSetup();
-    return;
-  }
-  const email=document.getElementById("init_email").value.trim();
-  const pw=document.getElementById("init_password").value;
-  const name=document.getElementById("init_name").value.trim();
-  const pin=document.getElementById("init_pin").value;
-  if(!email||!pw||!name||!pin){alert("メールアドレス・パスワード・氏名・PINは全て入力必須です。");return}
-  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){alert("メールアドレスの形式で入力してください。");return}
-  if(!/^[A-Za-z0-9]{8,}$/.test(pw)){alert("パスワードは英数字8桁以上で入力してください。");return}
-  if(!/^\d{4}$/.test(pin)){alert("PINは数字4桁で入力してください。");return}
-  const emp=await registerNewEmployee(email,pw,"社員"); // 初回登録は例外としてステータスを社員固定で作成
-  if(!emp){alert("このメールアドレスは既に登録されています。");return}
-  await registerNewStaff(name,pin);
-  currentEmployee=emp;
-  localStorage.setItem(SESSION_KEY,emp.email);
-  document.getElementById("init_email").value="";
-  document.getElementById("init_password").value="";
-  document.getElementById("init_name").value="";
-  document.getElementById("init_pin").value="";
-  enterApp();
-}
-// ページ読み込み時：保存済みのログインセッションがあれば自動的にログイン状態を復元し、なければログイン画面を表示（アカウント0件の場合はログイン画面に初回登録の案内が表示される）
+// ページ読み込み時：まずメールリンクでの帰還かどうかを確認してログインを完了させ、
+// その後Firebase Authenticationのログイン状態を監視して画面を切り替える
+// （同じ端末・ブラウザなら次回以降もFirebaseが自動的にログイン状態を維持する）
 async function initAuth(){
-  const savedEmail=localStorage.getItem(SESSION_KEY);
-  if(savedEmail){
-    const emp=fetchEmployees().find(e=>e.email===savedEmail);
-    if(emp){currentEmployee=emp;enterApp();return}
-  }
-  showLoginScreen();
+  await completeEmailLinkSignInIfNeeded();
+  auth.onAuthStateChanged(async(user)=>{
+    if(user){
+      currentEmployee=await ensureUserProfile(user);
+      enterApp();
+    }else{
+      currentEmployee=null;
+      showLoginScreen();
+    }
+  });
 }
 /* ===================================================================
    このファイル1つで完結する「景品管理ツール」のJavaScript本体。
-   データはブラウザのlocalStorageに保存され、月ごと(YYYY-MM)に
-   景品の配列を持つオブジェクト構造になっている。
-   例）data = { "2026-08": [ {id, name, stock, ...}, ... ], "2026-09": [...] }
+   データはFirestoreに保存され、月ごと(YYYY-MM)にドキュメントを分けて
+   景品の配列(items)を持つ構造になっている。
+   例）months/2026-08 = { items: [ {id, name, stock, ...}, ... ] }
+   現在表示中の月はリアルタイムリスナー(onSnapshot)で購読しており、
+   他の端末・他の人が編集した内容も自動的に画面へ反映される。
    =================================================================== */
-const KEY="buppin-kanri-monthly-v1"; // localStorageに保存する際のキー名
-let data=JSON.parse(localStorage.getItem(KEY)||"{}"); // 全月分のデータ本体
+let data={}; // 月ごとの景品配列のローカルキャッシュ（Firestoreの内容をミラーする）
 let currentMonth=monthKey(new Date()); // 現在選択中の月（"YYYY-MM"）
 let viewFilter="all", currentId=null, tempImage=""; // 一覧の表示フィルタ／詳細で開いているid／画像の一時保存
+let monthUnsub=null; // 現在購読中の月のリアルタイムリスナー解除関数
 
 // 日付から"YYYY-MM"形式の月キーを作る
 function monthKey(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")}
 // 月キーを「2026年8月」のような表示用文字列に変換
 function monthLabel(k){const [y,m]=k.split("-");return y+"年"+Number(m)+"月"}
-// データ全体をlocalStorageへ保存
-function save(){localStorage.setItem(KEY,JSON.stringify(data))}
-// 現在選択中の月の景品配列を取得（存在しなければ空配列を作る）
-function items(){if(!data[currentMonth])data[currentMonth]=[];return data[currentMonth]}
+// 現在選択中の月の景品配列を取得（ローカルキャッシュから。リアルタイムリスナーにより常に最新）
+function items(){return data[currentMonth]||[]}
 
 /* ===================================================================
-   【景品データ更新レイヤー】
+   【景品データ更新レイヤー】（Firestore版）
    複数名・複数箇所からの同時編集を見据え、景品データの「読み取り・更新」を
    月・景品ID・更新項目という粒度の関数にまとめている。
-   従業員データ(fetchEmployees等)と同じ考え方で、将来サーバーAPIに切り替える際は
-   この関数群の中身（今はlocalStorageへの保存）だけをサーバーへのfetch呼び出しに
-   差し替えれば、呼び出し元（画面側のロジック）はほぼ変更せずに移行できる。
-   「データ全体を丸ごと保存」ではなく、単一の景品・単一の項目単位で更新する
-   ことで、将来サーバー化した際に他の人の変更を意図せず上書きしてしまう
-   リスクを抑えやすい設計にしている（※現状はlocalStorageのみのため、
-   保存の実処理自体は引き続き全体保存のままである点に注意）。
+   月ごとに1ドキュメント（months/{monthKey}、フィールドitemsに配列）として保存する。
+   現在表示中の月についてはonSnapshotで常に最新をキャッシュしているため、
+   fetchMonthItemsはキャッシュ済みならそれを返し、未取得の月（例：一括登録の
+   登録先が現在表示中の月と異なる場合や、前月からの引き継ぎ判定）のみ
+   Firestoreへ都度取得しにいく。
    =================================================================== */
-// 指定した月の景品配列を取得する（読み取り用。存在しなければ空配列を作る）
-function fetchMonthItems(monthKey){if(!data[monthKey])data[monthKey]=[];return data[monthKey]}
-// 指定した月のデータに変更があったことを保存する（現状はlocalStorageへ全体保存。将来はここをサーバーAPI呼び出しに差し替える）
-function persistMonthItems(monthKey){save()}
+// 指定した月の景品配列を取得する（キャッシュ済みならそれを返し、無ければFirestoreから1回取得してキャッシュする）
+async function fetchMonthItems(monthKey){
+  if(data[monthKey])return data[monthKey];
+  const snap=await db.collection("months").doc(monthKey).get();
+  data[monthKey]=snap.exists?(snap.data().items||[]):[];
+  return data[monthKey];
+}
+// 指定した月のデータをFirestoreへ丸ごと保存する（items配列を上書き）
+async function persistMonthItems(monthKey){
+  await db.collection("months").doc(monthKey).set({items:data[monthKey]||[]});
+}
 // 指定した景品の、単一の項目だけを更新する（在庫場所・在庫数など、1項目のインライン編集向け）。見つからなければnullを返す
-function updateItemField(monthKey,itemId,field,value){
-  const x=fetchMonthItems(monthKey).find(i=>i.id===itemId);
+async function updateItemField(monthKey,itemId,field,value){
+  const list=await fetchMonthItems(monthKey);
+  const x=list.find(i=>i.id===itemId);
   if(!x)return null;
   x[field]=value;
-  persistMonthItems(monthKey);
+  await persistMonthItems(monthKey);
   return x;
 }
 // 指定した景品の、複数項目をまとめて更新する（詳細画面の保存・入荷確定・完売処理など）。見つからなければnullを返す
-function updateItemFields(monthKey,itemId,fields){
-  const x=fetchMonthItems(monthKey).find(i=>i.id===itemId);
+async function updateItemFields(monthKey,itemId,fields){
+  const list=await fetchMonthItems(monthKey);
+  const x=list.find(i=>i.id===itemId);
   if(!x)return null;
   Object.assign(x,fields);
-  persistMonthItems(monthKey);
+  await persistMonthItems(monthKey);
   return x;
 }
 // 複数の景品の項目をまとめて更新し、保存は最後に1回だけ行う（棚卸のエクセル出力など、月内の全件を一括更新する場合に使用）
-function updateItemsFieldsBulk(monthKey,updates){
-  const list=fetchMonthItems(monthKey), map=new Map(list.map(i=>[i.id,i]));
+async function updateItemsFieldsBulk(monthKey,updates){
+  const list=await fetchMonthItems(monthKey), map=new Map(list.map(i=>[i.id,i]));
   updates.forEach(({id,fields})=>{const x=map.get(id);if(x)Object.assign(x,fields)});
-  persistMonthItems(monthKey);
+  await persistMonthItems(monthKey);
 }
 // 新しい景品を1件追加する（手入力の新規登録用）
-function insertItem(monthKey,item){fetchMonthItems(monthKey).unshift(item);persistMonthItems(monthKey);return item}
+async function insertItem(monthKey,item){
+  const list=await fetchMonthItems(monthKey);
+  list.unshift(item);
+  await persistMonthItems(monthKey);
+  return item;
+}
 // 新しい景品を複数件まとめて追加する（エクセルからの一括登録用）
-function insertItems(monthKey,itemsArr){
-  const list=fetchMonthItems(monthKey);
+async function insertItems(monthKey,itemsArr){
+  const list=await fetchMonthItems(monthKey);
   itemsArr.forEach(it=>list.unshift(it));
-  persistMonthItems(monthKey);
+  await persistMonthItems(monthKey);
 }
 // 指定した景品を1件削除する
-function removeItem(monthKey,itemId){data[monthKey]=fetchMonthItems(monthKey).filter(i=>i.id!==itemId);persistMonthItems(monthKey)}
-// 指定した月の景品を全件削除する
-function removeAllItemsInMonth(monthKey){data[monthKey]=[];persistMonthItems(monthKey)}
-/* ===== 景品データ更新レイヤーここまで ===== */
-// 月選択ボタンに表示する月の範囲（現在月の2ヶ月前〜9ヶ月後）を、データが無くても空配列で用意しておく
-function ensureMonths(){
-  if(!data[currentMonth])data[currentMonth]=[];
-  const base=new Date(currentMonth+"-01T00:00:00");
-  for(let i=-2;i<=9;i++){const d=new Date(base.getFullYear(),base.getMonth()+i,1);const k=monthKey(d);if(!data[k])data[k]=[]}
-  save();
+async function removeItem(monthKey,itemId){
+  const list=await fetchMonthItems(monthKey);
+  data[monthKey]=list.filter(i=>i.id!==itemId);
+  await persistMonthItems(monthKey);
 }
-// 「月を選択」欄のボタン一覧を描画
+// 指定した月の景品を全件削除する
+async function removeAllItemsInMonth(monthKey){
+  data[monthKey]=[];
+  await persistMonthItems(monthKey);
+}
+/* ===== 景品データ更新レイヤーここまで ===== */
+// 「月を選択」欄のボタン一覧を描画（表示は現在月の2ヶ月前〜9ヶ月後。Firestore側にドキュメントが無くても空欄のボタンとして表示できる）
 function renderMonths(){
   const base=new Date(currentMonth+"-01T00:00:00"), arr=[];
   for(let i=-2;i<=9;i++){const d=new Date(base.getFullYear(),base.getMonth()+i,1);arr.push(monthKey(d))}
   document.getElementById("monthGrid").innerHTML=arr.map(k=>`<button class="month-btn ${k===currentMonth?"active":""}" onclick="selectMonth('${k}')">${monthLabel(k)}</button>`).join("");
 }
-// 月を切り替えて一覧を再描画
-function selectMonth(k){currentMonth=k;ensureMonths();renderMonths();render()}
+// 月を切り替える：表示中の月へのリアルタイムリスナーを張り替えて再描画する
+function selectMonth(k){
+  currentMonth=k;
+  renderMonths();
+  if(monthUnsub)monthUnsub(); // 前に購読していた月のリスナーは解除する
+  monthUnsub=db.collection("months").doc(k).onSnapshot(snap=>{
+    data[k]=snap.exists?(snap.data().items||[]):[];
+    if(currentMonth===k){render();renderInventory();}
+  },err=>{console.error("Firestore監視エラー：",err)});
+}
 // 景品詳細ポップアップを開く（一覧の商品名タップから呼ばれる）
 function openDetail(id){
   const item=items().find(x=>x.id===id);if(!item)return;
@@ -763,7 +700,7 @@ function fillDetail(x){
   document.getElementById("d_soldOut").checked=!!x.soldOut;
 }
 // 詳細画面の「保存」：入力内容を景品データへ反映する
-function saveDetail(){
+async function saveDetail(){
   const name=document.getElementById("d_name").value.trim();
   if(!name){alert("商品名を入力してください。");return}
   if(!items().find(x=>x.id===currentId))return;
@@ -779,12 +716,12 @@ function saveDetail(){
   if(obj.soldOut){obj.receivedQty=0} // 完売の場合は在庫数を強制的に0にする
   const rq=Number(obj.receivedQty);
   if(obj.receivedQty!==""&&!isNaN(rq))obj.stock=rq; // 在庫数(receivedQty)と一覧の在庫数(stock)を同じ値に同期させる
-  updateItemFields(currentMonth,currentId,obj);
+  await updateItemFields(currentMonth,currentId,obj);
   closeDetail();render();
 }
 function v(id){return document.getElementById(id).value} // 指定idの入力欄の値を取得する小さなヘルパー
 // 「景品を登録」ページのフォームから新規に1件登録する
-function registerItem(){
+async function registerItem(){
   const name=v("r_name").trim();
   if(!name){alert("商品名を入力してください。");return}
   const obj={
@@ -794,7 +731,7 @@ function registerItem(){
     unitPrice:v("r_unitPrice"),deliveryDate:v("r_deliveryDate"),confirmDate:"",receivedQty:"",location:"",
     notes:v("r_notes"),image:"",soldOut:false,stock:0,arrivalChecked:false,createdAt:new Date().toISOString()
   };
-  insertItem(currentMonth,obj);
+  await insertItem(currentMonth,obj);
   ["r_productNo","r_orderDate","r_supplier","r_releaseDate","r_name","r_quantity","r_shikiri","r_shipping","r_orderQty","r_includedShikiri","r_purchasePrice","r_unitPrice","r_deliveryDate","r_notes"].forEach(id=>document.getElementById(id).value="");
   render();
   showPage("main");
@@ -815,20 +752,27 @@ function toggleStaffMenu(e){
   group.style.display=open?"":"none";
   btn.textContent="社員メニュー"+(open?"－":"＋");
 }
-/* ===== ダークモード：body.darkの有無で見た目を切り替え、選択状態はlocalStorageに保存して次回起動時も維持する ===== */
-const DARK_MODE_KEY="buppin-kanri-dark-mode";
-// 保存されている設定（あれば）を画面に適用する。ページ読み込み時に呼び出す
+/* ===== ダークモード：body.darkの有無で見た目を切り替える。
+   ログイン後はFirestore(users/{uid}.darkMode)が正とし、他の端末とも設定が同期される。
+   ログイン前（ログイン画面表示時）はまだユーザーが特定できないため、
+   直前にこの端末で見ていた状態をlocalStorageに簡易キャッシュしてちらつきを防ぐだけに使う。 ===== */
+const DARK_MODE_KEY="buppin-kanri-dark-mode-cache";
+// 画面に反映する（ログイン後はcurrentEmployee.darkMode、ログイン前はlocalStorageの簡易キャッシュを見る）
 function applyDarkModePreference(){
-  const on=localStorage.getItem(DARK_MODE_KEY)==="1";
+  const on=currentEmployee?!!currentEmployee.darkMode:localStorage.getItem(DARK_MODE_KEY)==="1";
   document.body.classList.toggle("dark",on);
   const btn=document.getElementById("darkModeToggle");
   if(btn)btn.textContent=on?"☀️ ライトモード":"🌙 ダークモード";
 }
-// 右上メニューの「ダークモード」ボタン：ON/OFFを切り替えて保存する
-function toggleDarkMode(e){
+// 右上メニューの「ダークモード」ボタン：ON/OFFを切り替えてFirestoreへ保存する（他端末にも同期される）
+async function toggleDarkMode(e){
   if(e)e.stopPropagation();
   const on=!document.body.classList.contains("dark");
   localStorage.setItem(DARK_MODE_KEY,on?"1":"0");
+  if(currentEmployee){
+    currentEmployee.darkMode=on;
+    await db.collection("users").doc(currentEmployee.uid).update({darkMode:on});
+  }
   applyDarkModePreference();
 }
 // ページ切り替え本体（main=一覧／register=登録／bulk=一括登録／inventory=棚卸）
@@ -880,7 +824,7 @@ function onArrivalImageSelected(e){
 // 入荷ポップアップの画像を削除
 function removeArrivalImage(){avTempImage="";document.getElementById("av_imageFile").value="";setArrivalImagePreview("")}
 // 一覧の入荷チェックボックスが変化したときの処理。ONにするとポップアップを開き、OFFにすると即座に解除する
-function toggleArrival(id,checked,cb){
+async function toggleArrival(id,checked,cb){
   const x=items().find(x=>x.id===id);if(!x)return;
   if(checked){
     pendingArrival={id,cb};
@@ -899,7 +843,7 @@ function toggleArrival(id,checked,cb){
     document.body.style.overflow="hidden";
     setTimeout(()=>document.getElementById("av_cartons").focus(),50);
   }else{
-    updateItemFields(currentMonth,id,{arrivalChecked:false,confirmDate:""});
+    await updateItemFields(currentMonth,id,{arrivalChecked:false,confirmDate:""});
     render();
   }
 }
@@ -913,7 +857,7 @@ function cancelArrival(event){
   document.body.style.overflow="";
 }
 // 入荷ポップアップの「入荷を確定」：入数×カートン数を計算し、備考欄への記録・在庫数への反映・画像保存などを行う
-function confirmArrival(){
+async function confirmArrival(){
   if(!pendingArrival)return;
   const x=items().find(x=>x.id===pendingArrival.id);
   if(!x){cancelArrival();return}
@@ -940,7 +884,7 @@ function confirmArrival(){
   fields.stock=newReceivedQty; // 一覧の在庫数と同期
   fields.image=avTempImage;
   fields.arrivalChecked=true;
-  updateItemFields(currentMonth,x.id,fields);
+  await updateItemFields(currentMonth,x.id,fields);
   document.getElementById("arrivalOverlay").classList.remove("show");
   document.body.style.overflow="";
   pendingArrival=null;
@@ -948,14 +892,14 @@ function confirmArrival(){
 }
 // Dateオブジェクトを<input type="datetime-local">用の文字列("YYYY-MM-DDTHH:MM")に変換
 function toDateTimeLocal(d){const z=n=>String(n).padStart(2,"0");return d.getFullYear()+"-"+z(d.getMonth()+1)+"-"+z(d.getDate())+"T"+z(d.getHours())+":"+z(d.getMinutes())}
-function changeStock(id,delta){
+async function changeStock(id,delta){
   const x=items().find(x=>x.id===id);if(!x)return;
-  updateItemField(currentMonth,id,'stock',Math.max(0,x.stock+delta));
+  await updateItemField(currentMonth,id,'stock',Math.max(0,x.stock+delta));
   render();
 } // 現在は一覧UIからは呼ばれていない（過去の±1ボタン用の名残）
 // 一覧・棚卸ページの在庫場所インライン編集欄が変更されたときの保存処理
-function updateLocation(id,val){
-  const x=updateItemField(currentMonth,id,'location',val.trim());
+async function updateLocation(id,val){
+  const x=await updateItemField(currentMonth,id,'location',val.trim());
   if(!x)return;
   renderInventory();
 }
@@ -963,14 +907,14 @@ function updateLocation(id,val){
 /* ===== 完売処理（一覧・詳細どちらからも確認ポップアップを挟んで完売にする） ===== */
 let pendingSoldOut=null; // 完売確認中の対象（一覧からか詳細からかも保持）
 // 一覧の「完売を確認」チェックボックスが変化したときの処理
-function toggleSoldOut(id,checked,cb){
+async function toggleSoldOut(id,checked,cb){
   const x=items().find(x=>x.id===id);if(!x)return;
   if(checked){
     pendingSoldOut={id,cb,isDetail:false};
     document.getElementById("soldOutOverlay").classList.add("show");
     document.body.style.overflow="hidden";
   }else{
-    updateItemField(currentMonth,id,'soldOut',false);render();
+    await updateItemField(currentMonth,id,'soldOut',false);render();
   }
 }
 // 詳細画面の「完売を確認」チェックボックスが変化したときの処理（保存はsaveDetailを押すまで確定しない）
@@ -990,12 +934,12 @@ function cancelSoldOutConfirm(event){
   document.body.style.overflow="";
 }
 // 完売確認ポップアップの「完売にする」：在庫数を0にし、完売フラグを立てる
-function confirmSoldOutAction(){
+async function confirmSoldOutAction(){
   if(!pendingSoldOut)return;
   if(pendingSoldOut.isDetail){
     document.getElementById("d_receivedQty").value="0"; // 詳細画面は在庫数欄を0にするだけ（実際の保存はsaveDetailで行う）
   }else{
-    const x=updateItemFields(currentMonth,pendingSoldOut.id,{soldOut:true,stock:0,receivedQty:0});
+    const x=await updateItemFields(currentMonth,pendingSoldOut.id,{soldOut:true,stock:0,receivedQty:0});
     if(x)render();
   }
   document.getElementById("soldOutOverlay").classList.remove("show");
@@ -1003,26 +947,26 @@ function confirmSoldOutAction(){
   pendingSoldOut=null;
 }
 // 一覧の商品名タップ以外から呼ばれる、1件削除の確認と実行（現在は詳細画面のみから使用）
-function deleteItem(id){
+async function deleteItem(id){
   const x=items().find(x=>x.id===id);
-  if(x&&confirm("「"+x.name+"」を削除しますか？")){removeItem(currentMonth,id);render()}
+  if(x&&confirm("「"+x.name+"」を削除しますか？")){await removeItem(currentMonth,id);render()}
 }
 // 詳細画面の「削除」ボタン：確認のうえ、開いている景品を削除して詳細を閉じる
-function deleteFromDetail(){
+async function deleteFromDetail(){
   if(currentId==null)return;
   const id=currentId;
   const x=items().find(x=>x.id===id);if(!x)return;
   if(!confirm("「"+x.name+"」を削除しますか？"))return;
-  removeItem(currentMonth,id);
+  await removeItem(currentMonth,id);
   closeDetail();render();
 }
 // 一覧「⋮」メニューの「この月の登録景品を全て削除」
-function deleteAllInMonth(){
+async function deleteAllInMonth(){
   document.getElementById("viewMenu").classList.remove("show");
   const label=monthLabel(currentMonth), count=items().length;
   if(!count){alert(label+"には登録済みの景品がありません。");return}
   if(!confirm(label+"に登録されている景品を全て削除します（"+count+"件）。この操作は元に戻せません。よろしいですか？"))return;
-  removeAllItemsInMonth(currentMonth);render();
+  await removeAllItemsInMonth(currentMonth);render();
 }
 
 // 在庫数と入荷チェック状態から、在庫状態バッジ(k=内部キー,l=表示ラベル)を判定
@@ -1096,8 +1040,8 @@ function render(){
 
 /* ===== 棚卸ページ（倉庫在庫・機械在庫・在庫場所の入力とエクセル出力） ===== */
 // 棚卸ページの倉庫在庫・機械在庫のインライン編集欄が変更されたときの保存処理
-function updateStockField(id,field,val){
-  const x=updateItemField(currentMonth,id,field,val);
+async function updateStockField(id,field,val){
+  const x=await updateItemField(currentMonth,id,field,val);
   if(!x)return;
   renderInventory();
 }
@@ -1121,7 +1065,7 @@ function cancelStockAdd(event){
   document.body.style.overflow="";
 }
 // 在庫追加ポップアップの「追加する」：入力した数を現在の値に加算する
-function confirmStockAdd(){
+async function confirmStockAdd(){
   if(!pendingStockAdd)return;
   const x=items().find(x=>x.id===pendingStockAdd.id);
   if(!x){cancelStockAdd();return}
@@ -1130,7 +1074,7 @@ function confirmStockAdd(){
   if(addStr===""||isNaN(add)||add<0){alert("数値を入力してください。");return}
   const field=pendingStockAdd.field;
   const newValue=(Number(x[field])||0)+add;
-  updateItemField(currentMonth,pendingStockAdd.id,field,newValue);
+  await updateItemField(currentMonth,pendingStockAdd.id,field,newValue);
   document.getElementById("stockAddOverlay").classList.remove("show");
   document.body.style.overflow="";
   pendingStockAdd=null;
@@ -1190,7 +1134,7 @@ function cancelExport(event){
   document.body.style.overflow="";
 }
 // エクセル出力ポップアップの「出力する」：未入力チェック→倉庫在庫＋機械在庫を各景品の在庫数へ反映→xlsxファイルをダウンロード
-function confirmExport(){
+async function confirmExport(){
   const list=sortedItems();
   const incomplete=list.filter(x=>!isInventoryComplete(x));
   if(incomplete.length){
@@ -1221,7 +1165,7 @@ function confirmExport(){
   const sheetName=monthCandidates(currentMonth)[0]; // 出力するシート名は「◯月」形式
   XLSX.utils.book_append_sheet(wb,ws,sheetName);
   XLSX.writeFile(wb,"棚卸_"+monthLabel(currentMonth)+".xlsx");
-  updateItemsFieldsBulk(currentMonth,updates);
+  await updateItemsFieldsBulk(currentMonth,updates);
   cancelExport();
   render();
 }
@@ -1350,10 +1294,10 @@ function findCarryOverItem(r,targetMonth){
   return(data[pk]||[]).find(x=>(x.orderDate||"").trim()===on&&(x.supplier||"").trim()===sp&&(x.releaseDate||"").trim()===rl&&(x.name||"").trim()===nm)||null;
 }
 // プレビュー内容を実際に対象月のデータへ登録する（前月との一致があれば一部項目を引き継ぐ）
-function commitBulk(){
+async function commitBulk(){
   if(!bulkRows.length)return;
   const targetMonth=document.getElementById("bulkTargetMonth").value||currentMonth;
-  if(!data[targetMonth])data[targetMonth]=[];
+  await fetchMonthItems(prevMonthKey(targetMonth)); // findCarryOverItemが同期的にdata[pk]を参照できるよう、先に前月分をキャッシュしておく
   const base=Date.now();
   const newItems=bulkRows.map((r,idx)=>{
     const match=findCarryOverItem(r,targetMonth); // 前月の同一景品（あれば）
@@ -1370,7 +1314,7 @@ function commitBulk(){
       taiwanCatcher:false // 台湾キャッチャー利用フラグは月替わりのたびに手動で再設定する仕様（引き継ぎ対象外）
     };
   });
-  insertItems(targetMonth,newItems);
+  await insertItems(targetMonth,newItems);
   const count=bulkRows.length,monthText=monthLabel(targetMonth);
   clearBulk();
   selectMonth(targetMonth);
