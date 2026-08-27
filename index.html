@@ -157,6 +157,7 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 <button id="bulkMenuBtn" onclick="showPage('bulk')" style="display:none">一括登録</button>
 <button id="darkModeToggle" onclick="toggleDarkMode(event)">🌙 ダーク（ライト）モードに切り替え</button>
 <button onclick="openLogoutConfirm(event)">ログアウト</button>
+<button onclick="showPage('demo')">デモンストレーション</button>
 </div>
 </div>
 </div>
@@ -187,7 +188,7 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 <section class="card">
 <h2 id="inventoryTitle">棚卸</h2>
 <div class="help">在庫場所・倉庫在庫・機械在庫をその場で入力できます。＋ボタンで、後から数えた分を今の数に加算できます。「エクセル用に出力」を行うと、倉庫在庫＋機械在庫の合計が各景品の在庫数にも反映されます。倉庫在庫・機械在庫・在庫場所は入力必須です（倉庫在庫と機械在庫が共に0の場合、在庫場所は不要です）。</div>
-<div class="detail-actions" style="margin-top:14px"><button class="secondary" onclick="openExportOverlay()">エクセル用に出力</button></div>
+<div class="detail-actions" style="margin-top:14px"><button class="secondary" onclick="openExportOverlay()">エクセル用に出力</button><button class="secondary" onclick="openUnknownItemOverlay()">不明景品の追加</button></div>
 <div class="toolbar" style="margin-top:14px">
 <input id="inventorySearch" type="search" placeholder="🔎 景品名で検索" oninput="renderInventory()">
 <select id="inventoryFilter" onchange="renderInventory()">
@@ -233,6 +234,18 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 </section>
 <section class="item-list" id="itemList"></section>
 </div>
+
+<!-- ページ5：デモンストレーション（初めて使う人向けの研修ページ。ダミー景品を景品一覧と同じ見た目で表示するだけで、実データには一切触れない） -->
+<div id="pageDemo" style="display:none">
+<section class="card">
+<h2>🎓 デモンストレーション</h2>
+<div class="help">これは研修用のページです。実際の景品データではなく、操作イメージをつかんでいただくためのダミー景品を表示しています（入力・チェックは操作できません）。見た目や項目の意味は、通常の「景品一覧」と同じです。</div>
+</section>
+<section class="item-list" id="demoItemList"></section>
+</div>
+
+<!-- 景品一覧・棚卸ページ共通：ページ先頭までスクロールで戻るボタン。ある程度下にスクロールしたときだけ表示する -->
+<button id="scrollTopBtn" onclick="scrollToTop()" title="ページ先頭に戻る" style="display:none;align-items:center;justify-content:center;position:fixed;right:18px;bottom:24px;width:48px;height:48px;border-radius:50%;padding:0;font-size:20px;line-height:1;box-shadow:0 4px 14px rgba(0,0,0,.25);z-index:40">↑</button>
 </main>
 
 
@@ -300,6 +313,20 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 </div>
 <div class="help">元のファイルで景品名などのデータが始まる行の1つ上までの行数です。一括登録時に指定した数と同じ値を入力してください。この行数だけ空白行を空けたうえで、C列=景品ナンバー／S列=倉庫在庫／U列=機械在庫のみを景品ナンバー順に出力します。</div>
 <div class="detail-actions"><button onclick="confirmExport()">出力する</button><button class="secondary" onclick="cancelExport()">キャンセル</button></div>
+</div></div>
+
+<!-- ポップアップ4.5：不明景品の追加（棚卸時に、景品ナンバーが分からない現物を暫定登録する） -->
+<div id="unknownItemOverlay" class="overlay" onclick="cancelUnknownItem(event)">
+<div class="detail-card" style="max-width:420px" onclick="event.stopPropagation()">
+<div class="detail-header"><h2>不明景品の追加</h2><button class="close-btn" onclick="cancelUnknownItem()">×</button></div>
+<div class="help">景品ナンバーが分からない現物を、棚卸結果として暫定的に登録します。エクセル出力時は最後の景品から2行空けて赤字で出力されます。</div>
+<div class="detail-grid">
+<label class="full">景品名<input id="unk_name" type="text"></label>
+<label>倉庫在庫<input id="unk_warehouseStock" type="number" min="0" step="1" value="0"></label>
+<label>機械在庫<input id="unk_floorStock" type="number" min="0" step="1" value="0"></label>
+<label class="full">在庫場所<input id="unk_location" type="text"></label>
+</div>
+<div class="detail-actions"><button onclick="confirmUnknownItem()">追加する</button><button class="secondary" onclick="cancelUnknownItem()">キャンセル</button></div>
 </div></div>
 
 <!-- ポップアップ5：完売の確認（完売チェックON時に必ず挟む確認ステップ） -->
@@ -611,7 +638,7 @@ async function saveDetail(){
     expiryDate:v("d_expiryDate"),taiwanCatcher:document.getElementById("d_taiwanCatcher").checked,
     soldOut:document.getElementById("d_soldOut").checked
   };
-  if(obj.soldOut){obj.receivedQty=0} // 完売の場合は在庫数を強制的に0にする
+  if(obj.soldOut){obj.receivedQty=0;obj.warehouseStock=0;obj.floorStock=0} // 完売の場合は在庫数・倉庫在庫・機械在庫を強制的に0にする
   const rq=Number(obj.receivedQty);
   if(obj.receivedQty!==""&&!isNaN(rq))obj.stock=rq; // 在庫数(receivedQty)と一覧の在庫数(stock)を同じ値に同期させる
   await updateItemFields(currentMonth,currentId,obj);
@@ -652,6 +679,17 @@ async function toggleDarkMode(e){
 // ページ切り替え本体（main=一覧／bulk=一括登録／inventory=在庫登録）
 // ログイン中のアカウントが「社員」ステータスかどうかを判定する（一括登録の利用制限に使用）
 function isStaff(){return !!currentEmployee&&currentEmployee.status==="社員"}
+/* ===== ページ先頭に戻るボタン（景品一覧・棚卸ページでのみ使用） ===== */
+let scrollTopBtnEnabled=false; // 現在表示中のページが対象ページ(main/inventory)かどうか
+// スクロール量と対象ページかどうかに応じて、ボタンの表示/非表示を切り替える
+function updateScrollTopBtnVisibility(){
+  const btn=document.getElementById("scrollTopBtn");
+  if(!btn)return;
+  btn.style.display=(scrollTopBtnEnabled&&window.scrollY>300)?"flex":"none";
+}
+window.addEventListener("scroll",updateScrollTopBtnVisibility);
+// ボタン押下時：ページ先頭までスムーズにスクロールする
+function scrollToTop(){window.scrollTo({top:0,behavior:"smooth"})}
 function showPage(p){
   if(p==="bulk"&&!isStaff()){
     alert("この機能は社員ステータスのアカウントのみ利用できます。");
@@ -661,9 +699,13 @@ function showPage(p){
   document.getElementById("pageMain").style.display=p==="main"?"":"none";
   document.getElementById("pageBulk").style.display=p==="bulk"?"":"none";
   document.getElementById("pageInventory").style.display=p==="inventory"?"":"none";
+  document.getElementById("pageDemo").style.display=p==="demo"?"":"none";
   if(p==="bulk")renderBulkMonthOptions();
   if(p==="inventory")renderInventory();
+  if(p==="demo")renderDemoPage();
   document.getElementById("navMenu").classList.remove("show");
+  scrollTopBtnEnabled=(p==="main"||p==="inventory"); // 先頭に戻るボタンは景品一覧・棚卸ページでのみ有効
+  updateScrollTopBtnVisibility();
 }
 // 「エクセルから一括登録」ページの「登録する月」プルダウンの選択肢を作る
 function renderBulkMonthOptions(){
@@ -791,7 +833,7 @@ async function confirmSoldOutAction(){
   if(pendingSoldOut.isDetail){
     document.getElementById("d_receivedQty").value="0"; // 詳細画面は在庫数欄を0にするだけ（実際の保存はsaveDetailで行う）
   }else{
-    const x=await updateItemFields(currentMonth,pendingSoldOut.id,{soldOut:true,stock:0,receivedQty:0});
+    const x=await updateItemFields(currentMonth,pendingSoldOut.id,{soldOut:true,stock:0,receivedQty:0,warehouseStock:0,floorStock:0});
     if(x)render();
   }
   document.getElementById("soldOutOverlay").classList.remove("show");
@@ -846,13 +888,35 @@ function parseDateLoose(s){
   const d=new Date(Number(m[1]),Number(m[2])-1,Number(m[3]));
   return isNaN(d.getTime())?null:d.getTime();
 }
+// 検索文字列の全角/半角の違いを吸収する（英数字・カタカナなどをNFKC正規化してから比較する）
+function normalizeSearchText(s){return String(s??"").normalize("NFKC").toLowerCase()}
 // 景品一覧（メインページ）を描画する中心的な関数。検索・絞り込み・並び替え・集計・カードHTML生成をまとめて行う
+// 景品1件分のカードHTMLを生成する（景品一覧・デモページ共通）。demo=trueのときは入力・チェック操作を無効化した見本表示になる
+function renderItemCardHtml(x,demo){
+  const s=status(Number(x.stock||0),x.arrivalChecked);
+  const dis=demo?"disabled":"";
+  const arrivalOnchange=demo?"":`onchange="toggleArrival(${x.id},this.checked,this)"`;
+  const nameOnclick=demo?"":`onclick="openDetail(${x.id})"`;
+  const locOnchange=demo?"":`onchange="updateLocation(${x.id},this.value)"`;
+  const soldOnchange=demo?"":`onchange="toggleSoldOut(${x.id},this.checked,this)"`;
+  return `<article class="item ${x.arrivalChecked?"arrival-checked":""} ${x.soldOut?"sold-out":""}">
+      <div class="item-top"><div>
+        <div class="product-no">景品№ ${esc(x.productNo||"未登録")}</div>
+        <div class="name-row"><input class="arrival-check" type="checkbox" ${dis} ${x.arrivalChecked?"checked":""} ${arrivalOnchange} onclick="event.stopPropagation()"><div class="name" ${nameOnclick}>${esc(x.name)}</div></div>
+        <div class="meta">込単価：${x.unitPrice!==""&&x.unitPrice!=null?"¥"+esc(x.unitPrice):"未登録"}</div>
+        <div class="meta" style="display:flex;align-items:center;gap:6px">在庫場所：<input class="loc-edit" ${dis} onclick="event.stopPropagation()" ${locOnchange} value="${esc(x.location||"")}" placeholder="未登録"></div>
+        ${x.isFood?`<div class="meta" style="color:#b45309;font-weight:700">🍡 賞味期限：${esc(x.expiryDate||"未登録")}</div>`:""}
+        <div class="soldout-row"><label onclick="event.stopPropagation()"><input type="checkbox" ${dis} ${x.soldOut?"checked":""} ${soldOnchange}>完売を確認</label></div>
+        ${x.soldOut?'<span class="badge" style="background:#fff;color:#7f1d1d">完売</span>':`<span class="badge ${s.k}">${s.l}</span>`}
+      </div><div class="stock">${Number(x.stock||0)}</div></div>
+    </article>`;
+}
 function render(){
   document.getElementById("currentMonthLabel").textContent=monthLabel(currentMonth);
   document.getElementById("listTitle").textContent=monthLabel(currentMonth)+"の景品一覧";
-  const q=document.getElementById("search").value.trim().toLowerCase(), sf=document.getElementById("stockFilter").value;
+  const q=normalizeSearchText(document.getElementById("search").value.trim()), sf=document.getElementById("stockFilter").value;
   let list=sortedItems().filter(x=>{
-    const matchText=(x.name+" "+(x.category||"")).toLowerCase().includes(q), st=status(Number(x.stock||0),x.arrivalChecked).k;
+    const matchText=normalizeSearchText(x.name+" "+(x.category||"")).includes(q), st=status(Number(x.stock||0),x.arrivalChecked).k;
     // sf="food"は食品(台湾キャッチャー用も含む)全て、"taiwan"は食品かつ台湾キャッチャー利用のみ、それ以外は在庫状態(ok/low/out)で絞り込み
     const matchStock=sf==="all"?true:sf==="food"?x.isFood===true:sf==="taiwan"?(x.isFood===true&&x.taiwanCatcher===true):st===sf;
     const matchView=viewFilter==="all"||(viewFilter==="checked"&&x.arrivalChecked===true)||(viewFilter==="unchecked"&&x.arrivalChecked!==true);
@@ -873,24 +937,22 @@ function render(){
   document.getElementById("itemCount").textContent=items().length;
   document.getElementById("totalStock").textContent=items().reduce((a,x)=>a+Number(x.stock||0),0);
   document.getElementById("checkedCount").textContent=items().filter(x=>x.arrivalChecked).length;
-  document.getElementById("itemList").innerHTML=list.length?list.map(x=>{
-    const s=status(Number(x.stock||0),x.arrivalChecked);
-    return `<article class="item ${x.arrivalChecked?"arrival-checked":""} ${x.soldOut?"sold-out":""}">
-      <div class="item-top"><div>
-        <div class="product-no">景品№ ${esc(x.productNo||"未登録")}</div>
-        <div class="name-row"><input class="arrival-check" type="checkbox" ${x.arrivalChecked?"checked":""} onchange="toggleArrival(${x.id},this.checked,this)" onclick="event.stopPropagation()"><div class="name" onclick="openDetail(${x.id})">${esc(x.name)}</div></div>
-        <div class="meta">込単価：${x.unitPrice!==""&&x.unitPrice!=null?"¥"+esc(x.unitPrice):"未登録"}</div>
-        <div class="meta" style="display:flex;align-items:center;gap:6px">在庫場所：<input class="loc-edit" onclick="event.stopPropagation()" onchange="updateLocation(${x.id},this.value)" value="${esc(x.location||"")}" placeholder="未登録"></div>
-        ${x.isFood?`<div class="meta" style="color:#b45309;font-weight:700">🍡 賞味期限：${esc(x.expiryDate||"未登録")}</div>`:""}
-        <div class="soldout-row"><label onclick="event.stopPropagation()"><input type="checkbox" ${x.soldOut?"checked":""} onchange="toggleSoldOut(${x.id},this.checked,this)">完売を確認</label></div>
-        ${x.soldOut?'<span class="badge" style="background:#fff;color:#7f1d1d">完売</span>':`<span class="badge ${s.k}">${s.l}</span>`}
-      </div><div class="stock">${Number(x.stock||0)}</div></div>
-    </article>`
-  }).join(""):`<div class="card empty">該当する景品がありません。</div>`;
+  document.getElementById("itemList").innerHTML=list.length?list.map(x=>renderItemCardHtml(x,false)).join(""):`<div class="card empty">該当する景品がありません。</div>`;
   renderInventory(); // 棚卸ページも常に最新状態に同期しておく（表示中でなくても更新しておき、切り替え時にズレないようにする）
 }
 
-/* ===== 棚卸ページ（倉庫在庫・機械在庫・在庫場所の入力とエクセル出力） ===== */
+/* ===== デモンストレーションページ（初めて使う人向けの研修用。実データには一切触れないダミー表示） ===== */
+// 研修用のダミー景品データ（景品ナンバー1・2はA列1の食品判定を想定した食品景品）
+const DEMO_ITEMS=[
+  {id:"demo1",productNo:"1",name:"食品景品A",category:"未分類",isFood:true,arrivalChecked:true,soldOut:false,stock:12,unitPrice:"",location:"",expiryDate:""},
+  {id:"demo2",productNo:"2",name:"食品景品B",category:"未分類",isFood:true,arrivalChecked:false,soldOut:false,stock:0,unitPrice:"",location:"",expiryDate:""},
+  {id:"demo3",productNo:"3",name:"ぬいぐるみ景品",category:"未分類",isFood:false,arrivalChecked:true,soldOut:false,stock:5,unitPrice:"",location:"",expiryDate:""},
+  {id:"demo4",productNo:"4",name:"フィギュア景品",category:"未分類",isFood:false,arrivalChecked:false,soldOut:true,stock:0,unitPrice:"",location:"",expiryDate:""}
+];
+// デモページを描画する（景品一覧と全く同じカードデザインを使い、入力・チェックは操作できない見本表示にする）
+function renderDemoPage(){
+  document.getElementById("demoItemList").innerHTML=DEMO_ITEMS.map(x=>renderItemCardHtml(x,true)).join("");
+}
 // 棚卸ページの倉庫在庫・機械在庫のインライン編集欄が変更されたときの保存処理
 async function updateStockField(id,field,val){
   const x=await updateItemField(currentMonth,id,field,val);
@@ -949,10 +1011,10 @@ function renderInventory(){
   const wrap=document.getElementById("inventoryList");
   if(!wrap)return;
   document.getElementById("inventoryTitle").textContent=monthLabel(currentMonth)+"の棚卸";
-  const q=(document.getElementById("inventorySearch").value||"").trim().toLowerCase();
+  const q=normalizeSearchText((document.getElementById("inventorySearch").value||"").trim());
   const inf=document.getElementById("inventoryFilter").value;
   const list=sortedItems().filter(x=>{
-    const matchText=x.name.toLowerCase().includes(q);
+    const matchText=normalizeSearchText(x.name).includes(q);
     const matchFilter=inf==="incomplete"?!isInventoryComplete(x):true;
     return matchText&&matchFilter;
   });
@@ -966,7 +1028,7 @@ function renderInventory(){
     return `<article class="item">
       <div class="item-top"><div>
         <div class="product-no">景品№ ${esc(x.productNo||"未登録")}</div>
-        <div class="name">${esc(x.name)}</div>
+        <div class="name">${esc(x.name)}${x.isUnknown?' <span class="badge" style="background:#fee2e2;color:#dc2626">不明景品</span>':""}</div>
         <div class="meta" style="display:flex;align-items:center;gap:6px;margin-top:8px">在庫場所${locRequired?'<span style="color:#dc2626">＊</span>':""}：<input class="loc-edit ${locRequired&&locBlank?"field-missing":""}" onchange="updateLocation(${x.id},this.value)" value="${esc(x.location||"")}" placeholder="未登録"></div>
         <div class="meta" style="display:flex;align-items:center;gap:6px;margin-top:8px">倉庫在庫<span style="color:#dc2626">＊</span>：<input class="stock-edit ${wsBlank?"field-missing":""}" type="number" step="1" min="0" onchange="updateStockField(${x.id},'warehouseStock',this.value)" value="${esc(x.warehouseStock||"")}" placeholder="0"><button type="button" class="secondary stock-add-btn" onclick="openStockAdd(${x.id},'warehouseStock','倉庫在庫')">＋</button></div>
         <div class="meta" style="display:flex;align-items:center;gap:6px;margin-top:8px">機械在庫<span style="color:#dc2626">＊</span>：<input class="stock-edit ${fsBlank?"field-missing":""}" type="number" step="1" min="0" onchange="updateStockField(${x.id},'floorStock',this.value)" value="${esc(x.floorStock||"")}" placeholder="0"><button type="button" class="secondary stock-add-btn" onclick="openStockAdd(${x.id},'floorStock','機械在庫')">＋</button></div>
@@ -985,6 +1047,42 @@ function cancelExport(event){
   document.getElementById("exportOverlay").classList.remove("show");
   document.body.style.overflow="";
 }
+// 「不明景品の追加」ポップアップを開く
+function openUnknownItemOverlay(){
+  document.getElementById("unk_name").value="";
+  document.getElementById("unk_warehouseStock").value="0";
+  document.getElementById("unk_floorStock").value="0";
+  document.getElementById("unk_location").value="";
+  document.getElementById("unknownItemOverlay").classList.add("show");
+  document.body.style.overflow="hidden";
+}
+// 不明景品追加ポップアップをキャンセル
+function cancelUnknownItem(event){
+  if(event&&event.target!==document.getElementById("unknownItemOverlay"))return;
+  document.getElementById("unknownItemOverlay").classList.remove("show");
+  document.body.style.overflow="";
+}
+// 不明景品追加ポップアップの「追加する」：景品ナンバー不明の現物を、この月の景品として暫定登録する（isUnknown:trueで区別）
+async function confirmUnknownItem(){
+  const name=document.getElementById("unk_name").value.trim();
+  if(!name){alert("景品名を入力してください。");return}
+  const warehouseStock=Math.max(0,Number(document.getElementById("unk_warehouseStock").value)||0);
+  const floorStock=Math.max(0,Number(document.getElementById("unk_floorStock").value)||0);
+  const location=document.getElementById("unk_location").value.trim();
+  const total=warehouseStock+floorStock;
+  const item={
+    id:Date.now(),productNo:"",orderDate:"",supplier:"",releaseDate:"",name,category:"未分類",
+    quantity:"",shikiri:"",shipping:"",orderQty:"",includedShikiri:"",purchasePrice:"",unitPrice:"",
+    deliveryDate:"",confirmDate:"",receivedQty:total,location,notes:"",soldOut:false,stock:total,
+    arrivalChecked:false,createdAt:new Date().toISOString(),
+    warehouseStock,warehouseAmount:"",floorStock,floorAmount:"",
+    isFood:false,expiryDate:"",taiwanCatcher:false,
+    isUnknown:true // 棚卸で見つかった景品ナンバー不明の現物であることを示すフラグ（エクセル出力時に末尾へ分けて出力するために使用）
+  };
+  await insertItem(currentMonth,item);
+  cancelUnknownItem();
+  render();
+}
 // エクセル出力ポップアップの「出力する」：未入力チェック→倉庫在庫＋機械在庫を各景品の在庫数へ反映→xlsxファイルをダウンロード
 async function confirmExport(){
   const list=sortedItems();
@@ -998,25 +1096,50 @@ async function confirmExport(){
     renderInventory();
     return;
   }
+  const known=list.filter(x=>!x.isUnknown), unknown=list.filter(x=>x.isUnknown); // 不明景品は末尾に分けて出力するため切り分ける
   const headerRows=Math.max(0,parseInt(document.getElementById("exportHeaderRows").value,10)||0);
   const rows=[];
   for(let i=0;i<headerRows;i++)rows.push([]); // 元のエクセルの見出し行数ぶん空行を空ける
   const updates=[];
-  list.forEach(x=>{
+  known.forEach(x=>{
     const row=[];
     row[2]=x.productNo||"";                                                      // C列=景品ナンバー
     row[18]=x.warehouseStock!==undefined&&x.warehouseStock!==null?x.warehouseStock:""; // S列=倉庫在庫
     row[20]=x.floorStock!==undefined&&x.floorStock!==null?x.floorStock:"";             // U列=機械在庫
     for(let i=0;i<row.length;i++)if(row[i]===undefined)row[i]="";
     rows.push(row);
+  });
+  const unknownRowIndexes=[]; // 後で赤字スタイルを当てるための行番号一覧
+  if(unknown.length){
+    rows.push([]);rows.push([]); // 最後の景品から2行空ける
+    unknown.forEach(x=>{
+      const row=[];
+      row[2]="";                                          // 景品ナンバーは不明のため空欄
+      row[6]="【不明景品】"+x.name+(x.location?"（在庫場所："+x.location+"）":""); // G列=景品名。文字でも判別できるようマーカーと在庫場所を付記
+      row[18]=x.warehouseStock!==undefined&&x.warehouseStock!==null?x.warehouseStock:"";
+      row[20]=x.floorStock!==undefined&&x.floorStock!==null?x.floorStock:"";
+      for(let i=0;i<row.length;i++)if(row[i]===undefined)row[i]="";
+      unknownRowIndexes.push(rows.length);
+      rows.push(row);
+    });
+  }
+  list.forEach(x=>{
     const total=(Number(x.warehouseStock)||0)+(Number(x.floorStock)||0);
     updates.push({id:x.id,fields:{receivedQty:total,stock:total}}); // 出力と同時に、倉庫在庫＋機械在庫を景品側の在庫数にも反映する
   });
   const ws=XLSX.utils.aoa_to_sheet(rows);
+  // 不明景品の行を赤字にする（※使用しているxlsxライブラリの版によってはスタイル書き出しに対応していない場合があり、
+  // その際は上記の「【不明景品】」という文字マーカーで判別してください）
+  unknownRowIndexes.forEach(r=>{
+    [2,6,18,20].forEach(c=>{
+      const ref=XLSX.utils.encode_cell({r,c});
+      if(ws[ref])ws[ref].s={font:{color:{rgb:"FF0000"},bold:true}};
+    });
+  });
   const wb=XLSX.utils.book_new();
   const sheetName=monthCandidates(currentMonth)[0]; // 出力するシート名は「◯月」形式
   XLSX.utils.book_append_sheet(wb,ws,sheetName);
-  XLSX.writeFile(wb,"棚卸_"+monthLabel(currentMonth)+".xlsx");
+  XLSX.writeFile(wb,"棚卸_"+monthLabel(currentMonth)+".xlsx",{cellStyles:true});
   await updateItemsFieldsBulk(currentMonth,updates);
   cancelExport();
   render();
@@ -1145,13 +1268,24 @@ function findCarryOverItem(r,targetMonth){
   const on=(r.orderDate||"").trim(), sp=(r.supplier||"").trim(), rl=(r.releaseDate||"").trim(), nm=(r.name||"").trim();
   return(data[pk]||[]).find(x=>(x.orderDate||"").trim()===on&&(x.supplier||"").trim()===sp&&(x.releaseDate||"").trim()===rl&&(x.name||"").trim()===nm)||null;
 }
-// プレビュー内容を実際に対象月のデータへ登録する（前月との一致があれば一部項目を引き継ぐ）
+// 対象月に、C・D・E・F・G列(景品ナンバー・注文日・発注先・発売日・景品名)が全て完全一致する景品が既に登録されていないかを調べる。
+// 同じ月のエクセルを再登録した際に、既存の景品（入荷情報等が入った状態）と重複登録してしまうのを防ぐための判定
+function isDuplicateInTargetMonth(r,targetMonth){
+  const pn=(r.productNo||"").trim(), on=(r.orderDate||"").trim(), sp=(r.supplier||"").trim(), rl=(r.releaseDate||"").trim(), nm=(r.name||"").trim();
+  return (data[targetMonth]||[]).some(x=>(x.productNo||"").trim()===pn&&(x.orderDate||"").trim()===on&&(x.supplier||"").trim()===sp&&(x.releaseDate||"").trim()===rl&&(x.name||"").trim()===nm);
+}
+// プレビュー内容を実際に対象月のデータへ登録する（前月との一致があれば一部項目を引き継ぐ。対象月内で完全重複する行は登録を見送る）
 async function commitBulk(){
   if(!bulkRows.length)return;
   const targetMonth=document.getElementById("bulkTargetMonth").value||currentMonth;
+  await fetchMonthItems(targetMonth); // 対象月内の完全重複チェックのため、対象月分もキャッシュしておく
   await fetchMonthItems(prevMonthKey(targetMonth)); // findCarryOverItemが同期的にdata[pk]を参照できるよう、先に前月分をキャッシュしておく
   const base=Date.now();
-  const newItems=bulkRows.map((r,idx)=>{
+  let skippedDuplicate=0;
+  const newItems=bulkRows.filter(r=>{
+    if(isDuplicateInTargetMonth(r,targetMonth)){skippedDuplicate++;return false} // 対象月内で完全重複する行は登録を見送る
+    return true;
+  }).map((r,idx)=>{
     const match=findCarryOverItem(r,targetMonth); // 前月の同一景品（あれば）
     const stock=match?(Number(match.stock)||0):0;
     return{
@@ -1167,11 +1301,11 @@ async function commitBulk(){
     };
   });
   await insertItems(targetMonth,newItems);
-  const count=bulkRows.length,monthText=monthLabel(targetMonth);
+  const count=newItems.length,monthText=monthLabel(targetMonth);
   clearBulk();
   selectMonth(targetMonth);
   showPage("main");
-  alert(count+"件の景品を「"+monthText+"」に登録しました。");
+  alert(count+"件の景品を「"+monthText+"」に登録しました。"+(skippedDuplicate>0?"（"+monthText+"内に既に登録済みの完全重複"+skippedDuplicate+"件は登録を見送りました）":""));
 }
 // 一括登録の入力内容（読み込んだファイル・プレビュー）をクリアする
 function clearBulk(){
