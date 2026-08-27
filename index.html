@@ -512,7 +512,7 @@ function initAuth(){
    =================================================================== */
 let data={}; // 月ごとの景品配列のローカルキャッシュ（Firestoreの内容をミラーする）
 let currentMonth=monthKey(new Date()); // 現在選択中の月（"YYYY-MM"）
-let viewFilter="all", currentId=null; // 一覧の表示フィルタ／詳細で開いているid
+let viewFilter="all", currentId=null, currentIdIsDemo=false; // 一覧の表示フィルタ／詳細で開いているid／その詳細がデモ用データかどうか
 let monthUnsub=null; // 現在購読中の月のリアルタイムリスナー解除関数
 
 // 日付から"YYYY-MM"形式の月キーを作る
@@ -608,11 +608,11 @@ function selectMonth(k){
     if(currentMonth===k){render();renderInventory();}
   },err=>{console.error("Firestore監視エラー：",err)});
 }
-// 景品詳細ポップアップを開く（一覧の商品名タップから呼ばれる）
-function openDetail(id){
-  const item=items().find(x=>x.id===id);if(!item)return;
-  currentId=id;fillDetail(item);
-  document.getElementById("detailTitle").textContent="商品詳細";
+// 景品詳細ポップアップを開く（一覧の商品名タップから呼ばれる。demo=trueの場合はデモ用ダミーデータを開く）
+function openDetail(id,demo){
+  const item=demo?DEMO_ITEMS.find(x=>x.id===id):items().find(x=>x.id===id);if(!item)return;
+  currentId=id;currentIdIsDemo=!!demo;fillDetail(item);
+  document.getElementById("detailTitle").textContent=demo?"商品詳細（デモ）":"商品詳細";
   document.getElementById("detailOverlay").classList.add("show");document.body.style.overflow="hidden";
 }
 // 選択した景品のデータを詳細画面の各入力欄に流し込む（開いた直後に呼ばれる）
@@ -624,11 +624,12 @@ function fillDetail(x){
   Object.entries(map).forEach(([id,v])=>document.getElementById(id).value=v??"");
   document.getElementById("d_soldOut").checked=!!x.soldOut;
 }
-// 詳細画面の「保存」：入力内容を景品データへ反映する
+// 詳細画面の「保存」：入力内容を景品データへ反映する（デモの場合はDEMO_ITEMSのみを書き換え、Firestoreには一切触れない）
 async function saveDetail(){
   const name=document.getElementById("d_name").value.trim();
   if(!name){alert("商品名を入力してください。");return}
-  if(!items().find(x=>x.id===currentId))return;
+  const target=currentIdIsDemo?DEMO_ITEMS.find(x=>x.id===currentId):items().find(x=>x.id===currentId);
+  if(!target)return;
   const obj={
     productNo:v("d_productNo"),orderDate:v("d_orderDate"),supplier:v("d_supplier"),releaseDate:v("d_releaseDate"),
     name,quantity:v("d_quantity"),
@@ -641,12 +642,17 @@ async function saveDetail(){
   if(obj.soldOut){obj.receivedQty=0;obj.warehouseStock=0;obj.floorStock=0} // 完売の場合は在庫数・倉庫在庫・機械在庫を強制的に0にする
   const rq=Number(obj.receivedQty);
   if(obj.receivedQty!==""&&!isNaN(rq))obj.stock=rq; // 在庫数(receivedQty)と一覧の在庫数(stock)を同じ値に同期させる
-  await updateItemFields(currentMonth,currentId,obj);
-  closeDetail();render();
+  if(currentIdIsDemo){
+    Object.assign(target,obj);
+    closeDetail();renderDemoPage();
+  }else{
+    await updateItemFields(currentMonth,currentId,obj);
+    closeDetail();render();
+  }
 }
 function v(id){return document.getElementById(id).value} // 指定idの入力欄の値を取得する小さなヘルパー
 // 詳細ポップアップを閉じる（背景クリック時はoverlay自体がクリックされた場合のみ閉じる）
-function closeDetail(event){if(event&&event.target!==document.getElementById("detailOverlay"))return;document.getElementById("detailOverlay").classList.remove("show");document.body.style.overflow="";currentId=null}
+function closeDetail(event){if(event&&event.target!==document.getElementById("detailOverlay"))return;document.getElementById("detailOverlay").classList.remove("show");document.body.style.overflow="";currentId=null;currentIdIsDemo=false}
 // 一覧の「⋮」メニュー（表示フィルタ・全削除）の開閉
 function toggleMenu(e){e.stopPropagation();document.getElementById("viewMenu").classList.toggle("show")}
 // 入荷チェックON/OFFでの絞り込み（すべて／ONのみ／OFFのみ）を切り替え
@@ -722,12 +728,12 @@ document.addEventListener("click",()=>{
 
 /* ===== 入荷処理ポップアップ（一覧の入荷チェックをONにすると開く） ===== */
 let pendingArrival=null; // 入荷処理中の対象id
-// 一覧の入荷チェックボックスが変化したときの処理。ONにするとポップアップを開き、OFFにすると即座に解除する
-async function toggleArrival(id,checked,cb){
-  const x=items().find(x=>x.id===id);if(!x)return;
+// 一覧の入荷チェックボックスが変化したときの処理。ONにするとポップアップを開き、OFFにすると即座に解除する（demo=trueの場合はDEMO_ITEMSのみ操作しFirestoreには触れない）
+async function toggleArrival(id,checked,cb,demo){
+  const x=demo?DEMO_ITEMS.find(i=>i.id===id):items().find(x=>x.id===id);if(!x)return;
   if(checked){
-    pendingArrival={id,cb};
-    document.getElementById("arrivalItemName").textContent=x.name;
+    pendingArrival={id,cb,demo:!!demo};
+    document.getElementById("arrivalItemName").textContent=x.name+(demo?"（デモ）":"");
     document.getElementById("av_cartons").value="";
     document.getElementById("av_receiver").value="";
     document.getElementById("av_expiryDate").value=x.expiryDate||"";
@@ -739,8 +745,13 @@ async function toggleArrival(id,checked,cb){
     document.body.style.overflow="hidden";
     setTimeout(()=>document.getElementById("av_cartons").focus(),50);
   }else{
-    await updateItemFields(currentMonth,id,{arrivalChecked:false,confirmDate:""});
-    render();
+    if(demo){
+      Object.assign(x,{arrivalChecked:false,confirmDate:""});
+      renderDemoPage();
+    }else{
+      await updateItemFields(currentMonth,id,{arrivalChecked:false,confirmDate:""});
+      render();
+    }
   }
 }
 // 入荷ポップアップをキャンセル（チェックは元のOFFに戻す）
@@ -751,10 +762,11 @@ function cancelArrival(event){
   document.getElementById("arrivalOverlay").classList.remove("show");
   document.body.style.overflow="";
 }
-// 入荷ポップアップの「入荷を確定」：入数×カートン数を計算し、備考欄への記録・在庫数への反映などを行う
+// 入荷ポップアップの「入荷を確定」：入数×カートン数を計算し、備考欄への記録・在庫数への反映などを行う（デモの場合はDEMO_ITEMSのみ書き換え）
 async function confirmArrival(){
   if(!pendingArrival)return;
-  const x=items().find(x=>x.id===pendingArrival.id);
+  const demo=pendingArrival.demo;
+  const x=demo?DEMO_ITEMS.find(i=>i.id===pendingArrival.id):items().find(x=>x.id===pendingArrival.id);
   if(!x){cancelArrival();return}
   const cartonStr=document.getElementById("av_cartons").value.trim();
   const cartons=Number(cartonStr);
@@ -778,11 +790,15 @@ async function confirmArrival(){
   fields.receivedQty=newReceivedQty;
   fields.stock=newReceivedQty; // 一覧の在庫数と同期
   fields.arrivalChecked=true;
-  await updateItemFields(currentMonth,x.id,fields);
+  if(demo){
+    Object.assign(x,fields);
+  }else{
+    await updateItemFields(currentMonth,x.id,fields);
+  }
   document.getElementById("arrivalOverlay").classList.remove("show");
   document.body.style.overflow="";
   pendingArrival=null;
-  render();
+  demo?renderDemoPage():render();
 }
 // Dateオブジェクトを<input type="datetime-local">用の文字列("YYYY-MM-DDTHH:MM")に変換
 function toDateTimeLocal(d){const z=n=>String(n).padStart(2,"0");return d.getFullYear()+"-"+z(d.getMonth()+1)+"-"+z(d.getDate())+"T"+z(d.getHours())+":"+z(d.getMinutes())}
@@ -791,30 +807,36 @@ async function changeStock(id,delta){
   await updateItemField(currentMonth,id,'stock',Math.max(0,x.stock+delta));
   render();
 } // 現在は一覧UIからは呼ばれていない（過去の±1ボタン用の名残）
-// 一覧・棚卸ページの在庫場所インライン編集欄が変更されたときの保存処理
-async function updateLocation(id,val){
+// 一覧・棚卸ページの在庫場所インライン編集欄が変更されたときの保存処理（デモの場合はDEMO_ITEMSのみ書き換え）
+async function updateLocation(id,val,demo){
+  if(demo){
+    const x=DEMO_ITEMS.find(i=>i.id===id);if(!x)return;
+    x.location=val.trim();
+    return;
+  }
   const x=await updateItemField(currentMonth,id,'location',val.trim());
   if(!x)return;
   renderInventory();
 }
 
 /* ===== 完売処理（一覧・詳細どちらからも確認ポップアップを挟んで完売にする） ===== */
-let pendingSoldOut=null; // 完売確認中の対象（一覧からか詳細からかも保持）
-// 一覧の「完売を確認」チェックボックスが変化したときの処理
-async function toggleSoldOut(id,checked,cb){
-  const x=items().find(x=>x.id===id);if(!x)return;
+let pendingSoldOut=null; // 完売確認中の対象（一覧からか詳細からか、デモかどうかも保持）
+// 一覧の「完売を確認」チェックボックスが変化したときの処理（demo=trueの場合はDEMO_ITEMSのみ操作しFirestoreには触れない）
+async function toggleSoldOut(id,checked,cb,demo){
+  const x=demo?DEMO_ITEMS.find(i=>i.id===id):items().find(x=>x.id===id);if(!x)return;
   if(checked){
-    pendingSoldOut={id,cb,isDetail:false};
+    pendingSoldOut={id,cb,isDetail:false,demo:!!demo};
     document.getElementById("soldOutOverlay").classList.add("show");
     document.body.style.overflow="hidden";
   }else{
-    await updateItemField(currentMonth,id,'soldOut',false);render();
+    if(demo){x.soldOut=false;renderDemoPage();}
+    else{await updateItemField(currentMonth,id,'soldOut',false);render();}
   }
 }
 // 詳細画面の「完売を確認」チェックボックスが変化したときの処理（保存はsaveDetailを押すまで確定しない）
 function onDetailSoldOutChange(cb){
   if(cb.checked){
-    pendingSoldOut={id:null,cb,isDetail:true};
+    pendingSoldOut={id:null,cb,isDetail:true,demo:currentIdIsDemo};
     document.getElementById("soldOutOverlay").classList.add("show");
     document.body.style.overflow="hidden";
   }
@@ -827,11 +849,14 @@ function cancelSoldOutConfirm(event){
   document.getElementById("soldOutOverlay").classList.remove("show");
   document.body.style.overflow="";
 }
-// 完売確認ポップアップの「完売にする」：在庫数を0にし、完売フラグを立てる
+// 完売確認ポップアップの「完売にする」：在庫数を0にし、完売フラグを立てる（デモの場合はDEMO_ITEMSのみ書き換え）
 async function confirmSoldOutAction(){
   if(!pendingSoldOut)return;
   if(pendingSoldOut.isDetail){
     document.getElementById("d_receivedQty").value="0"; // 詳細画面は在庫数欄を0にするだけ（実際の保存はsaveDetailで行う）
+  }else if(pendingSoldOut.demo){
+    const x=DEMO_ITEMS.find(i=>i.id===pendingSoldOut.id);
+    if(x){Object.assign(x,{soldOut:true,stock:0,receivedQty:0,warehouseStock:0,floorStock:0});renderDemoPage();}
   }else{
     const x=await updateItemFields(currentMonth,pendingSoldOut.id,{soldOut:true,stock:0,receivedQty:0,warehouseStock:0,floorStock:0});
     if(x)render();
@@ -845,14 +870,20 @@ async function deleteItem(id){
   const x=items().find(x=>x.id===id);
   if(x&&confirm("「"+x.name+"」を削除しますか？")){await removeItem(currentMonth,id);render()}
 }
-// 詳細画面の「削除」ボタン：確認のうえ、開いている景品を削除して詳細を閉じる
+// 詳細画面の「削除」ボタン：確認のうえ、開いている景品を削除して詳細を閉じる（デモの場合はDEMO_ITEMSからのみ削除）
 async function deleteFromDetail(){
   if(currentId==null)return;
-  const id=currentId;
-  const x=items().find(x=>x.id===id);if(!x)return;
+  const id=currentId, demo=currentIdIsDemo;
+  const x=demo?DEMO_ITEMS.find(x=>x.id===id):items().find(x=>x.id===id);if(!x)return;
   if(!confirm("「"+x.name+"」を削除しますか？"))return;
-  await removeItem(currentMonth,id);
-  closeDetail();render();
+  if(demo){
+    const idx=DEMO_ITEMS.findIndex(i=>i.id===id);
+    if(idx>=0)DEMO_ITEMS.splice(idx,1);
+    closeDetail();renderDemoPage();
+  }else{
+    await removeItem(currentMonth,id);
+    closeDetail();render();
+  }
 }
 // 一覧「⋮」メニューの「この月の登録景品を全て削除」
 async function deleteAllInMonth(){
@@ -891,22 +922,23 @@ function parseDateLoose(s){
 // 検索文字列の全角/半角の違いを吸収する（英数字・カタカナなどをNFKC正規化してから比較する）
 function normalizeSearchText(s){return String(s??"").normalize("NFKC").toLowerCase()}
 // 景品一覧（メインページ）を描画する中心的な関数。検索・絞り込み・並び替え・集計・カードHTML生成をまとめて行う
-// 景品1件分のカードHTMLを生成する（景品一覧・デモページ共通）。demo=trueのときは入力・チェック操作を無効化した見本表示になる
+// 景品1件分のカードHTMLを生成する（景品一覧・デモページ共通）。demo=trueのときはDEMO_ITEMSのみを操作する見本モードになる（実データには一切触れない）
 function renderItemCardHtml(x,demo){
   const s=status(Number(x.stock||0),x.arrivalChecked);
-  const dis=demo?"disabled":"";
-  const arrivalOnchange=demo?"":`onchange="toggleArrival(${x.id},this.checked,this)"`;
-  const nameOnclick=demo?"":`onclick="openDetail(${x.id})"`;
-  const locOnchange=demo?"":`onchange="updateLocation(${x.id},this.value)"`;
-  const soldOnchange=demo?"":`onchange="toggleSoldOut(${x.id},this.checked,this)"`;
+  const idLit=demo?`'${x.id}'`:x.id; // 実データのid(数値)はそのまま、デモのid(文字列)はクォート付きで埋め込む
+  const dm=demo?",true":""; // demoモード時、各ハンドラの最後の引数として渡す
+  const arrivalOnchange=`onchange="toggleArrival(${idLit},this.checked,this${dm})"`;
+  const nameOnclick=`onclick="openDetail(${idLit}${dm})"`;
+  const locOnchange=`onchange="updateLocation(${idLit},this.value${dm})"`;
+  const soldOnchange=`onchange="toggleSoldOut(${idLit},this.checked,this${dm})"`;
   return `<article class="item ${x.arrivalChecked?"arrival-checked":""} ${x.soldOut?"sold-out":""}">
       <div class="item-top"><div>
         <div class="product-no">景品№ ${esc(x.productNo||"未登録")}</div>
-        <div class="name-row"><input class="arrival-check" type="checkbox" ${dis} ${x.arrivalChecked?"checked":""} ${arrivalOnchange} onclick="event.stopPropagation()"><div class="name" ${nameOnclick}>${esc(x.name)}</div></div>
+        <div class="name-row"><input class="arrival-check" type="checkbox" ${x.arrivalChecked?"checked":""} ${arrivalOnchange} onclick="event.stopPropagation()"><div class="name" ${nameOnclick}>${esc(x.name)}</div></div>
         <div class="meta">込単価：${x.unitPrice!==""&&x.unitPrice!=null?"¥"+esc(x.unitPrice):"未登録"}</div>
-        <div class="meta" style="display:flex;align-items:center;gap:6px">在庫場所：<input class="loc-edit" ${dis} onclick="event.stopPropagation()" ${locOnchange} value="${esc(x.location||"")}" placeholder="未登録"></div>
+        <div class="meta" style="display:flex;align-items:center;gap:6px">在庫場所：<input class="loc-edit" onclick="event.stopPropagation()" ${locOnchange} value="${esc(x.location||"")}" placeholder="未登録"></div>
         ${x.isFood?`<div class="meta" style="color:#b45309;font-weight:700">🍡 賞味期限：${esc(x.expiryDate||"未登録")}</div>`:""}
-        <div class="soldout-row"><label onclick="event.stopPropagation()"><input type="checkbox" ${dis} ${x.soldOut?"checked":""} ${soldOnchange}>完売を確認</label></div>
+        <div class="soldout-row"><label onclick="event.stopPropagation()"><input type="checkbox" ${x.soldOut?"checked":""} ${soldOnchange}>完売を確認</label></div>
         ${x.soldOut?'<span class="badge" style="background:#fff;color:#7f1d1d">完売</span>':`<span class="badge ${s.k}">${s.l}</span>`}
       </div><div class="stock">${Number(x.stock||0)}</div></div>
     </article>`;
