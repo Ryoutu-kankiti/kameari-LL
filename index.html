@@ -522,14 +522,23 @@ function monthLabel(k){const [y,m]=k.split("-");return y+"年"+Number(m)+"月"}
 function items(){return data[currentMonth]||[]}
 
 /* ===================================================================
-   【景品データ更新レイヤー】（Firestore版）
+   【景品データ更新レイヤー】（Firestore版・トランザクション対応）
    複数名・複数箇所からの同時編集を見据え、景品データの「読み取り・更新」を
    月・景品ID・更新項目という粒度の関数にまとめている。
    月ごとに1ドキュメント（months/{monthKey}、フィールドitemsに配列）として保存する。
+
+   【重要】書き込みは全てdb.runTransaction()を使い、書き込み直前にサーバー上の
+   最新のitems配列を読み直してから、対象の景品だけを書き換えて保存している。
+   これにより、AさんとBさんが同じ月の別々の景品をほぼ同時に編集しても、
+   お互いの変更が上書きし合って消えてしまう事故（後から保存した方が丸ごと
+   上書きしてしまう問題）を防いでいる。Firestoreのトランザクションは、
+   読み取りから書き込みの間に他の変更が入った場合は自動的にやり直される。
+
    現在表示中の月についてはonSnapshotで常に最新をキャッシュしているため、
    fetchMonthItemsはキャッシュ済みならそれを返し、未取得の月（例：一括登録の
    登録先が現在表示中の月と異なる場合や、前月からの引き継ぎ判定）のみ
-   Firestoreへ都度取得しにいく。
+   Firestoreへ都度取得しにいく（こちらは表示・判定用の読み取り専用なので
+   トランザクションにはしていない）。
    =================================================================== */
 // 指定した月の景品配列を取得する（キャッシュ済みならそれを返し、無ければFirestoreから1回取得してキャッシュする）
 async function fetchMonthItems(monthKey){
@@ -538,57 +547,94 @@ async function fetchMonthItems(monthKey){
   data[monthKey]=snap.exists?(snap.data().items||[]):[];
   return data[monthKey];
 }
-// 指定した月のデータをFirestoreへ丸ごと保存する（items配列を上書き）
-async function persistMonthItems(monthKey){
-  await db.collection("months").doc(monthKey).set({items:data[monthKey]||[]});
-}
-// 指定した景品の、単一の項目だけを更新する（在庫場所・在庫数など、1項目のインライン編集向け）。見つからなければnullを返す
+// 指定した景品の、単一の項目だけを更新する（在庫場所・在庫数など、1項目のインライン編集向け）。
+// サーバー上の最新状態を読み直してから対象の1件だけ書き換えるため、他の景品への同時編集を上書きしない。見つからなければnullを返す
 async function updateItemField(monthKey,itemId,field,value){
-  const list=await fetchMonthItems(monthKey);
-  const x=list.find(i=>i.id===itemId);
-  if(!x)return null;
-  x[field]=value;
-  await persistMonthItems(monthKey);
-  return x;
+  const ref=db.collection("months").doc(monthKey);
+  let updated=null, finalList=null;
+  await db.runTransaction(async(tx)=>{
+    const snap=await tx.get(ref);
+    const list=snap.exists?(snap.data().items||[]):[];
+    const x=list.find(i=>i.id===itemId);
+    if(x)x[field]=value;
+    tx.set(ref,{items:list});
+    updated=x||null;finalList=list;
+  });
+  if(finalList)data[monthKey]=finalList; // ローカルキャッシュも即座に最新化（onSnapshotの反映を待たずに画面へ反映するため）
+  return updated;
 }
 // 指定した景品の、複数項目をまとめて更新する（詳細画面の保存・入荷確定・完売処理など）。見つからなければnullを返す
 async function updateItemFields(monthKey,itemId,fields){
-  const list=await fetchMonthItems(monthKey);
-  const x=list.find(i=>i.id===itemId);
-  if(!x)return null;
-  Object.assign(x,fields);
-  await persistMonthItems(monthKey);
-  return x;
+  const ref=db.collection("months").doc(monthKey);
+  let updated=null, finalList=null;
+  await db.runTransaction(async(tx)=>{
+    const snap=await tx.get(ref);
+    const list=snap.exists?(snap.data().items||[]):[];
+    const x=list.find(i=>i.id===itemId);
+    if(x)Object.assign(x,fields);
+    tx.set(ref,{items:list});
+    updated=x||null;finalList=list;
+  });
+  if(finalList)data[monthKey]=finalList;
+  return updated;
 }
-// 複数の景品の項目をまとめて更新し、保存は最後に1回だけ行う（棚卸のエクセル出力など、月内の全件を一括更新する場合に使用）
+// 複数の景品の項目をまとめて更新する（棚卸のエクセル出力など、月内の全件を一括更新する場合に使用）
 async function updateItemsFieldsBulk(monthKey,updates){
-  const list=await fetchMonthItems(monthKey), map=new Map(list.map(i=>[i.id,i]));
-  updates.forEach(({id,fields})=>{const x=map.get(id);if(x)Object.assign(x,fields)});
-  await persistMonthItems(monthKey);
+  const ref=db.collection("months").doc(monthKey);
+  let finalList=null;
+  await db.runTransaction(async(tx)=>{
+    const snap=await tx.get(ref);
+    const list=snap.exists?(snap.data().items||[]):[];
+    const map=new Map(list.map(i=>[i.id,i]));
+    updates.forEach(({id,fields})=>{const x=map.get(id);if(x)Object.assign(x,fields)});
+    tx.set(ref,{items:list});
+    finalList=list;
+  });
+  if(finalList)data[monthKey]=finalList;
 }
 // 新しい景品を1件追加する（手入力の新規登録用）
 async function insertItem(monthKey,item){
-  const list=await fetchMonthItems(monthKey);
-  list.unshift(item);
-  await persistMonthItems(monthKey);
+  const ref=db.collection("months").doc(monthKey);
+  let finalList=null;
+  await db.runTransaction(async(tx)=>{
+    const snap=await tx.get(ref);
+    const list=snap.exists?(snap.data().items||[]):[];
+    list.unshift(item);
+    tx.set(ref,{items:list});
+    finalList=list;
+  });
+  if(finalList)data[monthKey]=finalList;
   return item;
 }
 // 新しい景品を複数件まとめて追加する（エクセルからの一括登録用）
 async function insertItems(monthKey,itemsArr){
-  const list=await fetchMonthItems(monthKey);
-  itemsArr.forEach(it=>list.unshift(it));
-  await persistMonthItems(monthKey);
+  const ref=db.collection("months").doc(monthKey);
+  let finalList=null;
+  await db.runTransaction(async(tx)=>{
+    const snap=await tx.get(ref);
+    const list=snap.exists?(snap.data().items||[]):[];
+    itemsArr.forEach(it=>list.unshift(it));
+    tx.set(ref,{items:list});
+    finalList=list;
+  });
+  if(finalList)data[monthKey]=finalList;
 }
 // 指定した景品を1件削除する
 async function removeItem(monthKey,itemId){
-  const list=await fetchMonthItems(monthKey);
-  data[monthKey]=list.filter(i=>i.id!==itemId);
-  await persistMonthItems(monthKey);
+  const ref=db.collection("months").doc(monthKey);
+  let finalList=null;
+  await db.runTransaction(async(tx)=>{
+    const snap=await tx.get(ref);
+    const list=snap.exists?(snap.data().items||[]):[];
+    finalList=list.filter(i=>i.id!==itemId);
+    tx.set(ref,{items:finalList});
+  });
+  if(finalList)data[monthKey]=finalList;
 }
 // 指定した月の景品を全件削除する
 async function removeAllItemsInMonth(monthKey){
+  await db.collection("months").doc(monthKey).set({items:[]}); // 全件削除なので読み直す必要がなく、トランザクション不要
   data[monthKey]=[];
-  await persistMonthItems(monthKey);
 }
 /* ===== 景品データ更新レイヤーここまで ===== */
 // 「月を選択」欄のプルダウンを描画（表示は現在月の2ヶ月前〜9ヶ月後。Firestore側にドキュメントが無くても選択肢として表示できる）
