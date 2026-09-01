@@ -213,7 +213,7 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 
 <section class="summary">
 <div class="stat"><div class="stat-label">品目数</div><div class="stat-value" id="itemCount">0</div></div>
-<div class="stat"><div class="stat-label">総在庫数</div><div class="stat-value" id="totalStock">0</div></div>
+<div class="stat"><div class="stat-label">完売✓ON</div><div class="stat-value" id="soldOutCount">0</div></div>
 <div class="stat"><div class="stat-label">入荷✓ON</div><div class="stat-value" id="checkedCount">0</div></div>
 </section>
 
@@ -1100,7 +1100,7 @@ function renderItemCardHtml(x,demo){
       <div class="item-top"><div>
         <div class="product-no">景品№ ${esc(x.productNo||"未登録")}</div>
         <div class="name-row"><input class="arrival-check" type="checkbox" ${x.arrivalChecked?"checked":""} ${arrivalOnchange} onclick="event.stopPropagation()"><div class="name" ${nameOnclick}>${esc(x.name)}</div></div>
-        <div class="meta">込単価：${x.unitPrice!==""&&x.unitPrice!=null?"¥"+esc(x.unitPrice):"未登録"}</div>
+        <div class="meta">込単価：${x.unitPrice!==""&&x.unitPrice!=null?"¥"+esc(x.unitPrice):"未登録"}｜納品予定日：${esc(x.deliveryDate||"未登録")}</div>
         <div class="meta" style="display:flex;align-items:center;gap:6px">在庫場所：<input class="loc-edit" onclick="event.stopPropagation()" ${locOnchange} value="${esc(x.location||"")}" placeholder="未登録"></div>
         ${x.isFood?`<div class="meta" style="color:#b45309;font-weight:700">🍡 賞味期限：${esc(x.expiryDate||"未登録")}</div>`:""}
         <div class="soldout-row"><label onclick="event.stopPropagation()"><input type="checkbox" ${x.soldOut?"checked":""} ${soldOnchange}>完売を確認</label></div>
@@ -1133,7 +1133,7 @@ function render(){
     list=[...checked,...unchecked];
   }
   document.getElementById("itemCount").textContent=items().length;
-  document.getElementById("totalStock").textContent=items().reduce((a,x)=>a+Number(x.warehouseStock||0),0);
+  document.getElementById("soldOutCount").textContent=items().filter(x=>x.soldOut).length;
   document.getElementById("checkedCount").textContent=items().filter(x=>x.arrivalChecked).length;
   // 誰か（自分・他の人問わず）がこの一覧内の入力欄を今まさに編集中の場合、ここでinnerHTMLを丸ごと作り直すと
   // 編集中の内容が消えてしまう（他の人の更新がリアルタイム反映される仕組みと相性が悪いため）。編集中は再描画を見送る
