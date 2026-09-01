@@ -38,7 +38,7 @@ input[type="checkbox"]{-webkit-appearance:auto;-moz-appearance:auto;appearance:a
 /* 景品一覧の1件分のカード（.arrival-checkedは入荷チェックON時、.sold-outは完売時の色） */
 .item-list{display:grid;gap:10px}.item{border:1px solid #e3e7ef;border-radius:12px;padding:14px;background:#fff}.item.arrival-checked{background:#f0fdf4;border-color:#bbf0cd}
 .item.postponed{background:#fefce8;border-color:#eab308}
-.item.sold-out{background:#b91c1c;border-color:#7f1d1d}.item.sold-out .name,.item.sold-out .meta,.item.sold-out .stock,.item.sold-out .stock-label{color:#fff}.item.sold-out .badge,.item.sold-out .product-no{background:rgba(255,255,255,.85)}
+.item.sold-out{background:#b91c1c;border-color:#7f1d1d}.item.sold-out .name,.item.sold-out .meta,.item.sold-out .stock,.item.sold-out .stock-label,.item.sold-out .saved-badge{color:#fff}.item.sold-out .badge,.item.sold-out .product-no{background:rgba(255,255,255,.85)}
 .item-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.name-row{display:flex;align-items:center;gap:9px}
 .arrival-check{width:22px;height:22px;min-height:22px;margin:0;cursor:pointer;accent-color:#1f6feb;flex:0 0 auto}
 .name{font-size:17px;font-weight:800;color:#1f6feb;cursor:pointer;text-decoration:underline;text-underline-offset:3px}.meta{color:#667085;font-size:13px;margin-top:4px}.stock{font-size:22px;font-weight:800}
@@ -58,6 +58,8 @@ input[type="checkbox"]{-webkit-appearance:auto;-moz-appearance:auto;appearance:a
 /* 一覧カード内の「完売を確認」チェック行 */
 .soldout-row{display:flex;align-items:center;gap:6px;margin-top:10px}.soldout-row label{display:flex;align-items:center;gap:6px;font-weight:700;color:#7f1d1d;font-size:13px;cursor:pointer}
 .soldout-row input{width:20px;min-height:20px;flex:0 0 auto;margin:0}
+/* 一覧・棚卸カード右下の「書き込み成功」表示（保存成功のフィードバック。ページ再読み込みで消える一時表示） */
+.saved-badge{text-align:right;font-size:11px;color:#667085;margin-top:10px}
 /* ポップアップ（詳細・入荷処理・在庫追加・エクセル出力・完売確認）の共通の枠 */
 .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;padding:16px;overflow:auto}.overlay.show{display:flex;align-items:flex-start;justify-content:center}
 .detail-card{width:100%;max-width:800px;margin:10px auto;background:#fff;border-radius:16px;padding:18px;box-shadow:0 10px 40px rgba(0,0,0,.2)}
@@ -87,7 +89,7 @@ body.dark button.danger{background:#ef4444;color:#fff}
 body.dark .menu-btn{background:#232a38;color:#e5e7eb}
 body.dark .view-menu button{background:#1b202b;color:#e5e7eb}
 body.dark .view-menu button:hover{background:#232a38}
-body.dark .stat-label,body.dark .meta,body.dark .help,body.dark .detail-grid label,body.dark .bulk-table th,body.dark .drop-zone{color:#9aa4b2}
+body.dark .stat-label,body.dark .meta,body.dark .help,body.dark .detail-grid label,body.dark .bulk-table th,body.dark .drop-zone,body.dark .saved-badge{color:#9aa4b2}
 body.dark .name{color:#8ab4f8}
 body.dark .product-no{background:#232a38;color:#8ab4f8}
 body.dark .ok,body.dark .not-arrived{background:#123524;color:#6ee7a0}
@@ -95,7 +97,7 @@ body.dark .low{background:#3a2e0d;color:#fbbf24}
 body.dark .out{background:#3a1414;color:#fca5a5}
 body.dark .machine-only{background:#26235c;color:#a5b4fc}
 body.dark .item.sold-out{background:#b91c1c;border-color:#7f1d1d} /* 完売時は視認性重視でライトモードと同じ赤のまま */
-body.dark .item.sold-out .name,body.dark .item.sold-out .meta,body.dark .item.sold-out .stock,body.dark .item.sold-out .stock-label{color:#fff}
+body.dark .item.sold-out .name,body.dark .item.sold-out .meta,body.dark .item.sold-out .stock,body.dark .item.sold-out .stock-label,body.dark .item.sold-out .saved-badge{color:#fff}
 body.dark .close-btn{background:#232a38;color:#e5e7eb}
 body.dark .drop-zone{background:#1b202b;border-color:#2b3242}
 body.dark .drop-zone.dragover{border-color:#2563eb;background:#182338;color:#8ab4f8}
@@ -189,6 +191,7 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 <div id="pageInventory" style="display:none">
 <section class="card">
 <h2 id="inventoryTitle">棚卸</h2>
+<label style="display:flex;align-items:center;gap:8px;margin:0 0 14px">棚卸する月<select id="inventoryMonthGrid" onchange="selectMonth(this.value)" style="max-width:220px"></select></label>
 <div class="help">在庫場所・倉庫在庫・機械在庫をその場で入力できます。＋ボタンで、後から数えた分を今の数に加算できます。「エクセル用に出力」を行うと、倉庫在庫＋機械在庫の合計が各景品の在庫数にも反映されます。倉庫在庫・機械在庫・在庫場所は入力必須です（倉庫在庫と機械在庫が共に0の場合、在庫場所は不要です）。</div>
 <div class="detail-actions" style="margin-top:14px"><button class="secondary" onclick="openExportOverlay()">エクセル用に出力</button><button class="secondary" onclick="openUnknownItemOverlay()">不明景品の追加</button></div>
 <div class="toolbar" style="margin-top:14px">
@@ -270,7 +273,7 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 <label>込単価<input id="d_unitPrice" type="number" step="0.01" min="0"></label>
 <label>納品予定日<input id="d_deliveryDate" type="text" placeholder="例：2026/8/3、8月3週"></label>
 <label>納品確認日<input id="d_confirmDate" type="datetime-local"></label>
-<label>在庫数<input id="d_receivedQty" type="number" min="0"></label>
+<label>在庫数<input id="d_warehouseStock" type="number" min="0"></label>
 <label>在庫場所<input id="d_location"></label>
 <label id="d_expiryWrap" class="full" style="display:none">賞味期限<input id="d_expiryDate" type="text" placeholder="例：2026/9/30"></label>
 <label id="d_taiwanWrap" class="full" style="display:none;flex-direction:row;align-items:center;gap:8px"><input id="d_taiwanCatcher" type="checkbox" style="width:22px;min-height:22px;flex:0 0 auto">台湾キャッチャーで利用</label>
@@ -506,7 +509,7 @@ function initAuth(){
    このファイル1つで完結する「景品管理ツール」のJavaScript本体。
    データはFirestoreに保存され、月ごと(YYYY-MM)にサブコレクションを分けて、
    景品1件を1ドキュメントとして持つ構造になっている。
-   例）months/2026-08/items/1234567890 = {id, name, stock, ...}
+   例）months/2026-08/items/1234567890 = {id, name, warehouseStock, ...}
    現在表示中の月はリアルタイムリスナー(onSnapshot)で購読しており、
    他の端末・他の人が編集した内容も自動的に画面へ反映される。
    =================================================================== */
@@ -514,6 +517,14 @@ let data={}; // 月ごとの景品配列のローカルキャッシュ（Firesto
 let currentMonth=monthKey(new Date()); // 現在選択中の月（"YYYY-MM"）
 let viewFilter="all", currentId=null, currentIdIsDemo=false; // 一覧の表示フィルタ／詳細で開いているid／その詳細がデモ用データかどうか
 let monthUnsub=null; // 現在購読中の月のリアルタイムリスナー解除関数
+const savedAt={}; // 景品ID→直近の書き込み成功日時(Date)。このブラウザでの保存成功フィードバック表示用（一時的なもので、再読み込みで消える）
+// Dateを「YYYY/MM/DD HH:MM:SS」形式の文字列に変換する（書き込み成功表示用）
+function formatSavedAt(d){const z=n=>String(n).padStart(2,"0");return d.getFullYear()+"/"+z(d.getMonth()+1)+"/"+z(d.getDate())+" "+z(d.getHours())+":"+z(d.getMinutes())+":"+z(d.getSeconds())}
+// 指定した景品IDの「書き込み成功」表示用HTMLを返す（未保存なら空文字）
+function savedAtBadgeHtml(id){
+  const t=savedAt[id];
+  return t?`<div class="saved-badge">書き込み成功（${formatSavedAt(t)}）</div>`:"";
+}
 
 // 日付から"YYYY-MM"形式の月キーを作る
 function monthKey(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")}
@@ -571,10 +582,37 @@ async function ensureMonthMigrated(monthKeyStr){
   const legacyItems=legacy.exists?(legacy.data().items||[]):[];
   if(legacyItems.length)await batchSetItems(monthKeyStr,legacyItems);
 }
+// 「在庫数(stock)」「在庫数(receivedQty)」フィールドをwarehouseStock（倉庫在庫）へ一本化する一度きりの移行処理。
+// ・倉庫在庫(warehouseStock)に実際の数字が入っている景品（＝その月で棚卸を行った景品）：棚卸の数字を優先し、古いstock・receivedQtyフィールドは削除するだけ
+// ・倉庫在庫が空欄の景品（＝その月はまだ棚卸をしていない）：数字を失わないよう、旧いstock→receivedQtyの順で値を引き継いでwarehouseStockに設定
+// ・stock・receivedQtyのどちらも無い（＝移行済みの）景品はスキップする
+// 書き込みに失敗した場合はそのままエラーを投げる。失敗を検知した呼び出し元はこの月の表示・編集を中止し、利用者に報告すること
+async function ensureStockFieldsMigrated(monthKeyStr){
+  const snap=await itemsRef(monthKeyStr).get();
+  const targets=[];
+  const notBlank=v=>v!==undefined&&v!==null&&v!=="";
+  snap.docs.forEach(doc=>{
+    const d=doc.data();
+    const hasLegacy=("stock" in d)||("receivedQty" in d);
+    if(!hasLegacy)return; // 既に移行済み
+    const update={stock:firebase.firestore.FieldValue.delete(),receivedQty:firebase.firestore.FieldValue.delete()};
+    if(!notBlank(d.warehouseStock)){ // 棚卸（倉庫在庫）に実際の値が入っていない場合のみ、旧フィールドから引き継ぐ
+      update.warehouseStock=notBlank(d.stock)?d.stock:(notBlank(d.receivedQty)?d.receivedQty:"");
+    }
+    targets.push({ref:doc.ref,update});
+  });
+  for(let i=0;i<targets.length;i+=400){
+    const chunk=targets.slice(i,i+400);
+    const batch=db.batch();
+    chunk.forEach(t=>batch.update(t.ref,t.update));
+    await batch.commit();
+  }
+}
 // 指定した月の景品配列を取得する（キャッシュ済みならそれを返し、無ければ移行処理の上でFirestoreから取得してキャッシュする）
 async function fetchMonthItems(monthKeyStr){
   if(data[monthKeyStr])return data[monthKeyStr];
   await ensureMonthMigrated(monthKeyStr);
+  await ensureStockFieldsMigrated(monthKeyStr); // 失敗時はここで例外が投げられ、呼び出し元（commitBulkなど）で処理が中止される
   const snap=await itemsRef(monthKeyStr).get();
   data[monthKeyStr]=snap.docs.map(d=>d.data());
   return data[monthKeyStr];
@@ -592,6 +630,7 @@ async function updateItemField(monthKeyStr,itemId,field,value){
   const list=data[monthKeyStr]||[];
   const x=list.find(i=>i.id===itemId);
   if(x)x[field]=value; // ローカルキャッシュも即座に最新化（onSnapshotの反映を待たずに画面へ反映するため）
+  savedAt[itemId]=new Date(); // 書き込み成功日時を記録（一覧・棚卸カードの「書き込み成功」表示用）
   return x||null;
 }
 // 指定した景品の、複数項目をまとめて更新する（詳細画面の保存・入荷確定・完売処理など）。見つからない・保存失敗の場合はnullを返す
@@ -606,26 +645,8 @@ async function updateItemFields(monthKeyStr,itemId,fields){
   const list=data[monthKeyStr]||[];
   const x=list.find(i=>i.id===itemId);
   if(x)Object.assign(x,fields);
+  savedAt[itemId]=new Date(); // 書き込み成功日時を記録（一覧・棚卸カードの「書き込み成功」表示用）
   return x||null;
-}
-// 複数の景品の項目をまとめて更新する（棚卸のエクセル出力など、月内の全件を一括更新する場合に使用）。成功時true、失敗時false
-async function updateItemsFieldsBulk(monthKeyStr,updates){
-  try{
-    for(let i=0;i<updates.length;i+=400){
-      const chunk=updates.slice(i,i+400);
-      const batch=db.batch();
-      chunk.forEach(({id,fields})=>batch.update(itemsRef(monthKeyStr).doc(String(id)),fields));
-      await batch.commit();
-    }
-  }catch(err){
-    notifySaveError(err);
-    if(currentMonth===monthKeyStr){render();renderInventory();}
-    return false;
-  }
-  const list=data[monthKeyStr]||[];
-  const map=new Map(list.map(i=>[i.id,i]));
-  updates.forEach(({id,fields})=>{const x=map.get(id);if(x)Object.assign(x,fields)});
-  return true;
 }
 // 新しい景品を1件追加する（手入力の新規登録用）。失敗時はnullを返す
 async function insertItem(monthKeyStr,item){
@@ -683,10 +704,14 @@ async function removeAllItemsInMonth(monthKeyStr){
 }
 /* ===== 景品データ更新レイヤーここまで ===== */
 // 「月を選択」欄のプルダウンを描画（表示は現在月の2ヶ月前〜9ヶ月後。Firestore側にドキュメントが無くても選択肢として表示できる）
+// 景品一覧・棚卸の両ページで同じcurrentMonthを共有しているため、両方のプルダウンを同じ内容・選択状態で描画する
 function renderMonths(){
   const base=new Date(currentMonth+"-01T00:00:00"), arr=[];
   for(let i=-2;i<=9;i++){const d=new Date(base.getFullYear(),base.getMonth()+i,1);arr.push(monthKey(d))}
-  document.getElementById("monthGrid").innerHTML=arr.map(k=>`<option value="${k}" ${k===currentMonth?"selected":""}>${monthLabel(k)}</option>`).join("");
+  const optionsHtml=arr.map(k=>`<option value="${k}" ${k===currentMonth?"selected":""}>${monthLabel(k)}</option>`).join("");
+  document.getElementById("monthGrid").innerHTML=optionsHtml;
+  const invSelect=document.getElementById("inventoryMonthGrid");
+  if(invSelect)invSelect.innerHTML=optionsHtml;
 }
 // 月を切り替える：表示中の月へのリアルタイムリスナーを張り替えて再描画する
 async function selectMonth(k){
@@ -694,6 +719,13 @@ async function selectMonth(k){
   renderMonths();
   if(monthUnsub)monthUnsub(); // 前に購読していた月のリスナーは解除する
   await ensureMonthMigrated(k); // 旧形式のデータが残っていれば先に移行する
+  try{
+    await ensureStockFieldsMigrated(k); // stock・receivedQtyフィールドをwarehouseStockへ一本化する移行処理
+  }catch(err){
+    console.error("在庫数フィールドの移行に失敗しました：",err);
+    alert("この月のデータ移行に失敗したため、表示を中止しました。通信状況をご確認のうえ、もう一度お試しください。");
+    return; // 移行できていないデータで表示・編集してしまうことを防ぐため、購読・描画は行わない
+  }
   monthUnsub=itemsRef(k).onSnapshot(snap=>{
     data[k]=snap.docs.map(d=>d.data());
     if(currentMonth===k){render();renderInventory();}
@@ -708,7 +740,7 @@ function openDetail(id,demo){
 }
 // 選択した景品のデータを詳細画面の各入力欄に流し込む（開いた直後に呼ばれる）
 function fillDetail(x){
-  const map={d_productNo:x.productNo,d_orderDate:x.orderDate,d_supplier:x.supplier,d_releaseDate:x.releaseDate,d_name:x.name,d_quantity:x.quantity,d_shikiri:x.shikiri,d_shipping:x.shipping,d_orderQty:x.orderQty,d_includedShikiri:x.includedShikiri,d_purchasePrice:x.purchasePrice,d_unitPrice:x.unitPrice,d_deliveryDate:x.deliveryDate,d_confirmDate:x.confirmDate,d_receivedQty:x.receivedQty,d_location:x.location,d_notes:x.notes,d_expiryDate:x.expiryDate};
+  const map={d_productNo:x.productNo,d_orderDate:x.orderDate,d_supplier:x.supplier,d_releaseDate:x.releaseDate,d_name:x.name,d_quantity:x.quantity,d_shikiri:x.shikiri,d_shipping:x.shipping,d_orderQty:x.orderQty,d_includedShikiri:x.includedShikiri,d_purchasePrice:x.purchasePrice,d_unitPrice:x.unitPrice,d_deliveryDate:x.deliveryDate,d_confirmDate:x.confirmDate,d_warehouseStock:x.warehouseStock,d_location:x.location,d_notes:x.notes,d_expiryDate:x.expiryDate};
   document.getElementById("d_expiryWrap").style.display=x.isFood?"":"none"; // 賞味期限欄は食品のときだけ表示
   document.getElementById("d_taiwanWrap").style.display=x.isFood?"":"none"; // 台湾キャッチャー欄も食品のときだけ表示
   document.getElementById("d_taiwanCatcher").checked=!!x.taiwanCatcher;
@@ -729,14 +761,12 @@ async function saveDetail(){
     name,quantity:v("d_quantity"),
     shikiri:v("d_shikiri"),shipping:v("d_shipping"),orderQty:v("d_orderQty"),includedShikiri:v("d_includedShikiri"),
     purchasePrice:v("d_purchasePrice"),unitPrice:v("d_unitPrice"),deliveryDate:v("d_deliveryDate"),
-    confirmDate:v("d_confirmDate"),receivedQty:v("d_receivedQty"),location:v("d_location"),notes:v("d_notes"),
+    confirmDate:v("d_confirmDate"),warehouseStock:v("d_warehouseStock"),location:v("d_location"),notes:v("d_notes"),
     expiryDate:v("d_expiryDate"),taiwanCatcher:document.getElementById("d_taiwanCatcher").checked,
     soldOut:document.getElementById("d_soldOut").checked,
     postponed:isStaff()?document.getElementById("d_postponed").checked:!!target.postponed // 社員以外は元の値のまま変更しない
   };
-  if(obj.soldOut||obj.postponed){obj.receivedQty=0;obj.warehouseStock=0;obj.floorStock=0} // 完売・延期/発売中止の場合は在庫数・倉庫在庫・機械在庫を強制的に0にする
-  const rq=Number(obj.receivedQty);
-  if(obj.receivedQty!==""&&!isNaN(rq))obj.stock=rq; // 在庫数(receivedQty)と一覧の在庫数(stock)を同じ値に同期させる
+  if(obj.soldOut||obj.postponed){obj.warehouseStock=0;obj.floorStock=0} // 完売・延期/発売中止の場合は倉庫在庫・機械在庫を強制的に0にする
   if(currentIdIsDemo){
     Object.assign(target,obj);
     closeDetail();renderDemoPage();
@@ -876,6 +906,7 @@ function cancelArrival(event){
   document.body.style.overflow="";
 }
 // 入荷ポップアップの「入荷を確定」：入数×カートン数を計算し、備考欄への記録・在庫数への反映などを行う（デモの場合はDEMO_ITEMSのみ書き換え）
+// warehouseStock（倉庫在庫）が在庫数を兼ねるフィールドのため、ここに直接加算する
 async function confirmArrival(){
   if(!pendingArrival)return;
   const demo=pendingArrival.demo;
@@ -899,9 +930,7 @@ async function confirmArrival(){
   const dateStr=d.getFullYear()+"/"+z(d.getMonth()+1)+"/"+z(d.getDate())+" "+z(d.getHours())+":"+z(d.getMinutes());
   const noteLine="【入荷】"+dateStr+" 入数"+qty+"×"+cartons+"カートン＝"+total+"個｜受領者："+(receiver||"未記入");
   fields.notes=(x.notes?x.notes+"\n":"")+noteLine; // 備考欄に追記
-  const newReceivedQty=(Number(x.receivedQty)||0)+total; // 在庫数（累積）に加算
-  fields.receivedQty=newReceivedQty;
-  fields.stock=newReceivedQty; // 一覧の在庫数と同期
+  fields.warehouseStock=(Number(x.warehouseStock)||0)+total; // 現在の倉庫在庫（＝在庫数）に今回の入荷数を加算
   fields.arrivalChecked=true;
   if(demo){
     Object.assign(x,fields);
@@ -915,12 +944,7 @@ async function confirmArrival(){
 }
 // Dateオブジェクトを<input type="datetime-local">用の文字列("YYYY-MM-DDTHH:MM")に変換
 function toDateTimeLocal(d){const z=n=>String(n).padStart(2,"0");return d.getFullYear()+"-"+z(d.getMonth()+1)+"-"+z(d.getDate())+"T"+z(d.getHours())+":"+z(d.getMinutes())}
-async function changeStock(id,delta){
-  const x=items().find(x=>x.id===id);if(!x)return;
-  await updateItemField(currentMonth,id,'stock',Math.max(0,x.stock+delta));
-  render();
-} // 現在は一覧UIからは呼ばれていない（過去の±1ボタン用の名残）
-// 一覧右上の「倉庫在庫」欄が変更されたときの保存処理。棚卸ページの倉庫在庫と同じ値を共有する。
+// 一覧右上の「倉庫在庫」欄が変更されたときの保存処理。棚卸ページの倉庫在庫と同じ値を共有する（＝在庫数を兼ねる）。
 // 倉庫在庫が0になり、かつ機械在庫がまだ残っている場合は、棚卸の在庫場所に「マシン内のみ」を自動入力する
 // （完売時や、機械在庫も0の場合は在庫場所を変更しない）
 async function updateWarehouseStockFromList(id,val,demo){
@@ -933,7 +957,7 @@ async function updateWarehouseStockFromList(id,val,demo){
     return;
   }
   const x=items().find(x=>x.id===id);if(!x)return;
-  const fields={warehouseStock:num,stock:num+Number(x.floorStock||0)};
+  const fields={warehouseStock:num};
   if(num===0&&Number(x.floorStock||0)>0)fields.location="マシン内のみ";
   const updated=await updateItemFields(currentMonth,id,fields);
   if(!updated)return;
@@ -985,22 +1009,17 @@ function cancelSoldOutConfirm(event){
 async function confirmSoldOutAction(){
   if(!pendingSoldOut)return;
   if(pendingSoldOut.isDetail){
-    document.getElementById("d_receivedQty").value="0"; // 詳細画面は在庫数欄を0にするだけ（実際の保存はsaveDetailで行う）
+    document.getElementById("d_warehouseStock").value="0"; // 詳細画面は在庫数欄を0にするだけ（実際の保存はsaveDetailで行う）
   }else if(pendingSoldOut.demo){
     const x=DEMO_ITEMS.find(i=>i.id===pendingSoldOut.id);
-    if(x){Object.assign(x,{soldOut:true,stock:0,receivedQty:0,warehouseStock:0,floorStock:0});renderDemoPage();}
+    if(x){Object.assign(x,{soldOut:true,warehouseStock:0,floorStock:0});renderDemoPage();}
   }else{
-    const x=await updateItemFields(currentMonth,pendingSoldOut.id,{soldOut:true,stock:0,receivedQty:0,warehouseStock:0,floorStock:0});
+    const x=await updateItemFields(currentMonth,pendingSoldOut.id,{soldOut:true,warehouseStock:0,floorStock:0});
     if(x)render();
   }
   document.getElementById("soldOutOverlay").classList.remove("show");
   document.body.style.overflow="";
   pendingSoldOut=null;
-}
-// 一覧の商品名タップ以外から呼ばれる、1件削除の確認と実行（現在は詳細画面のみから使用）
-async function deleteItem(id){
-  const x=items().find(x=>x.id===id);
-  if(x&&confirm("「"+x.name+"」を削除しますか？")){await removeItem(currentMonth,id);render()}
 }
 // 詳細画面の「削除」ボタン：確認のうえ、開いている景品を削除して詳細を閉じる（デモの場合はDEMO_ITEMSからのみ削除）
 async function deleteFromDetail(){
@@ -1087,6 +1106,7 @@ function renderItemCardHtml(x,demo){
         <div class="soldout-row"><label onclick="event.stopPropagation()"><input type="checkbox" ${x.soldOut?"checked":""} ${soldOnchange}>完売を確認</label></div>
         ${x.soldOut?'<span class="badge" style="background:#fff;color:#7f1d1d">完売</span>':`<span class="badge ${s.k}">${s.l}</span>`}
       </div><div class="stock-wrap" onclick="event.stopPropagation()"><div class="stock-label">倉庫在庫</div><input class="stock-num" type="number" min="0" step="1" inputmode="numeric" value="${Number(x.warehouseStock||0)}" ${stockOnchange}></div></div>
+      ${demo?"":savedAtBadgeHtml(x.id)}
     </article>`;
 }
 function render(){
@@ -1113,7 +1133,7 @@ function render(){
     list=[...checked,...unchecked];
   }
   document.getElementById("itemCount").textContent=items().length;
-  document.getElementById("totalStock").textContent=items().reduce((a,x)=>a+Number(x.stock||0),0);
+  document.getElementById("totalStock").textContent=items().reduce((a,x)=>a+Number(x.warehouseStock||0),0);
   document.getElementById("checkedCount").textContent=items().filter(x=>x.arrivalChecked).length;
   // 誰か（自分・他の人問わず）がこの一覧内の入力欄を今まさに編集中の場合、ここでinnerHTMLを丸ごと作り直すと
   // 編集中の内容が消えてしまう（他の人の更新がリアルタイム反映される仕組みと相性が悪いため）。編集中は再描画を見送る
@@ -1126,16 +1146,17 @@ function render(){
 /* ===== デモンストレーションページ（初めて使う人向けの研修用。実データには一切触れないダミー表示） ===== */
 // 研修用のダミー景品データ（景品ナンバー1・2はA列1の食品判定を想定した食品景品）
 const DEMO_ITEMS=[
-  {id:"demo1",productNo:"1",name:"食品景品A",category:"未分類",isFood:true,arrivalChecked:true,soldOut:false,stock:12,warehouseStock:12,floorStock:3,unitPrice:"",location:"",expiryDate:""},
-  {id:"demo2",productNo:"2",name:"食品景品B",category:"未分類",isFood:true,arrivalChecked:false,soldOut:false,stock:0,warehouseStock:0,floorStock:0,unitPrice:"",location:"",expiryDate:""},
-  {id:"demo3",productNo:"3",name:"ぬいぐるみ景品",category:"未分類",isFood:false,arrivalChecked:true,soldOut:false,stock:5,warehouseStock:5,floorStock:2,unitPrice:"",location:"",expiryDate:""},
-  {id:"demo4",productNo:"4",name:"フィギュア景品",category:"未分類",isFood:false,arrivalChecked:false,soldOut:true,stock:0,warehouseStock:0,floorStock:0,unitPrice:"",location:"",expiryDate:""}
+  {id:"demo1",productNo:"1",name:"食品景品A",category:"未分類",isFood:true,arrivalChecked:true,soldOut:false,warehouseStock:12,floorStock:3,unitPrice:"",location:"",expiryDate:""},
+  {id:"demo2",productNo:"2",name:"食品景品B",category:"未分類",isFood:true,arrivalChecked:false,soldOut:false,warehouseStock:0,floorStock:0,unitPrice:"",location:"",expiryDate:""},
+  {id:"demo3",productNo:"3",name:"ぬいぐるみ景品",category:"未分類",isFood:false,arrivalChecked:true,soldOut:false,warehouseStock:5,floorStock:2,unitPrice:"",location:"",expiryDate:""},
+  {id:"demo4",productNo:"4",name:"フィギュア景品",category:"未分類",isFood:false,arrivalChecked:false,soldOut:true,warehouseStock:0,floorStock:0,unitPrice:"",location:"",expiryDate:""}
 ];
 // デモページを描画する（景品一覧と全く同じカードデザインを使い、入力・チェックは操作できない見本表示にする）
 function renderDemoPage(){
   document.getElementById("demoItemList").innerHTML=DEMO_ITEMS.map(x=>renderItemCardHtml(x,true)).join("");
 }
 // 棚卸ページの倉庫在庫・機械在庫のインライン編集欄が変更されたときの保存処理
+// warehouseStockが在庫数を兼ねるフィールドのため、単純にその項目を更新するだけでよい
 async function updateStockField(id,field,val){
   const x=await updateItemField(currentMonth,id,field,val);
   if(!x)return;
@@ -1221,6 +1242,7 @@ function renderInventory(){
         <div class="meta" style="display:flex;align-items:center;gap:6px;margin-top:8px">倉庫在庫<span style="color:#dc2626">＊</span>：<input class="stock-edit ${wsBlank?"field-missing":""}" type="number" step="1" min="0" onchange="updateStockField(${x.id},'warehouseStock',this.value)" onkeydown="handleEnterCommit(event)" value="${esc(x.warehouseStock||"")}" placeholder="0"><button type="button" class="secondary stock-add-btn" onclick="openStockAdd(${x.id},'warehouseStock','倉庫在庫')">＋</button></div>
         <div class="meta" style="display:flex;align-items:center;gap:6px;margin-top:8px">機械在庫<span style="color:#dc2626">＊</span>：<input class="stock-edit ${fsBlank?"field-missing":""}" type="number" step="1" min="0" onchange="updateStockField(${x.id},'floorStock',this.value)" onkeydown="handleEnterCommit(event)" value="${esc(x.floorStock||"")}" placeholder="0"><button type="button" class="secondary stock-add-btn" onclick="openStockAdd(${x.id},'floorStock','機械在庫')">＋</button></div>
       </div></div>
+      ${savedAtBadgeHtml(x.id)}
     </article>`;
   }).join(""):`<div class="card empty">該当する景品がありません。</div>`;
 }
@@ -1257,11 +1279,10 @@ async function confirmUnknownItem(){
   const warehouseStock=Math.max(0,Number(document.getElementById("unk_warehouseStock").value)||0);
   const floorStock=Math.max(0,Number(document.getElementById("unk_floorStock").value)||0);
   const location=document.getElementById("unk_location").value.trim();
-  const total=warehouseStock+floorStock;
   const item={
     id:Date.now(),productNo:"",orderDate:"",supplier:"",releaseDate:"",name,category:"未分類",
     quantity:"",shikiri:"",shipping:"",orderQty:"",includedShikiri:"",purchasePrice:"",unitPrice:"",
-    deliveryDate:"",confirmDate:"",receivedQty:total,location,notes:"",soldOut:false,stock:total,
+    deliveryDate:"",confirmDate:"",location,notes:"",soldOut:false,
     arrivalChecked:false,createdAt:new Date().toISOString(),
     warehouseStock,warehouseAmount:"",floorStock,floorAmount:"",
     isFood:false,expiryDate:"",taiwanCatcher:false,
@@ -1296,7 +1317,6 @@ async function confirmExport(){
   const maxRow=numbered.length?Math.max(...numbered.map(n=>n.rowNum)):0;
   const rows=[];
   for(let i=0;i<maxRow;i++)rows.push([]); // 景品ナンバー分の行をあらかじめ確保（歯抜けの番号はそのまま空行になる）
-  const updates=[];
   numbered.forEach(({rowNum,item:x})=>{
     const row=[];
     row[2]=x.productNo||"";                                                      // C列=景品ナンバー
@@ -1321,10 +1341,6 @@ async function confirmExport(){
       rows.push(row);
     });
   }
-  list.forEach(x=>{
-    const total=(Number(x.warehouseStock)||0)+(Number(x.floorStock)||0);
-    updates.push({id:x.id,fields:{receivedQty:total,stock:total}}); // 出力と同時に、倉庫在庫＋機械在庫を景品側の在庫数にも反映する
-  });
   const ws=XLSX.utils.aoa_to_sheet(rows);
   // 番号なしの行を赤字にする（※使用しているxlsxライブラリの版によってはスタイル書き出しに対応していない場合があり、
   // その際は上記の文字マーカーで判別してください）
@@ -1338,8 +1354,7 @@ async function confirmExport(){
   const sheetName=monthCandidates(currentMonth)[0]; // 出力するシート名は「◯月」形式
   XLSX.utils.book_append_sheet(wb,ws,sheetName);
   XLSX.writeFile(wb,"棚卸_"+monthLabel(currentMonth)+".xlsx",{cellStyles:true});
-  const ok=await updateItemsFieldsBulk(currentMonth,updates);
-  if(ok){cancelExport();render();}
+  cancelExport();
 }
 // HTML特殊文字をエスケープする（一覧・棚卸などのテンプレート文字列に値を差し込む際に必ず通す）
 function esc(s){return String(s??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;")}
@@ -1481,8 +1496,14 @@ function isDuplicateInTargetMonth(r,targetMonth){
 async function commitBulk(){
   if(!bulkRows.length)return;
   const targetMonth=document.getElementById("bulkTargetMonth").value||currentMonth;
-  await fetchMonthItems(targetMonth); // 対象月内の完全重複チェックのため、対象月分もキャッシュしておく
-  await fetchMonthItems(prevMonthKey(targetMonth)); // findCarryOverItemが同期的にdata[pk]を参照できるよう、先に前月分をキャッシュしておく
+  try{
+    await fetchMonthItems(targetMonth); // 対象月内の完全重複チェックのため、対象月分もキャッシュしておく
+    await fetchMonthItems(prevMonthKey(targetMonth)); // findCarryOverItemが同期的にdata[pk]を参照できるよう、先に前月分をキャッシュしておく
+  }catch(err){
+    console.error("在庫数フィールドの移行に失敗しました：",err);
+    alert("前月データの移行に失敗したため、登録を中止しました。通信状況をご確認のうえ、もう一度お試しください。");
+    return;
+  }
   const base=Date.now();
   let skippedDuplicate=0;
   const newItems=bulkRows.filter(r=>{
@@ -1490,15 +1511,15 @@ async function commitBulk(){
     return true;
   }).map((r,idx)=>{
     const match=findCarryOverItem(r,targetMonth); // 前月の同一景品（あれば）
-    const stock=match?(Number(match.stock)||0):0;
+    const carriedStock=match?(Number(match.warehouseStock)||0):0; // 前月の倉庫在庫（＝在庫数）
     return{
       id:base+idx,productNo:r.productNo,orderDate:r.orderDate,supplier:r.supplier,releaseDate:r.releaseDate, // 景品ナンバーは常に今回のエクセルの内容を使う
       name:r.name,category:"未分類",quantity:r.quantity,shikiri:r.shikiri,shipping:r.shipping,
       orderQty:r.orderQty,includedShikiri:r.includedShikiri,purchasePrice:r.purchasePrice,
-      unitPrice:r.unitPrice,deliveryDate:r.deliveryDate,confirmDate:r.confirmDate||"",receivedQty:match?stock:"", // 在庫数は前月からの引き継ぎ（一致がなければ空）
+      unitPrice:r.unitPrice,deliveryDate:r.deliveryDate,confirmDate:r.confirmDate||"",
       location:match?(match.location||""):"", // 在庫場所も同様に引き継ぎ
-      notes:r.notes,soldOut:false,stock,arrivalChecked:match?!!match.arrivalChecked:false,createdAt:new Date().toISOString(), // 入荷チェックのON/OFFも引き継ぎ
-      warehouseStock:r.warehouseStock||"",warehouseAmount:r.warehouseAmount||"",floorStock:r.floorStock||"",floorAmount:r.floorAmount||"",
+      notes:r.notes,soldOut:false,arrivalChecked:match?!!match.arrivalChecked:false,createdAt:new Date().toISOString(), // 入荷チェックのON/OFFも引き継ぎ
+      warehouseStock:match?carriedStock:"",warehouseAmount:r.warehouseAmount||"",floorStock:r.floorStock||"",floorAmount:r.floorAmount||"", // 倉庫在庫（＝在庫数）は前月引き継ぎを優先。一致がなければエクセルではなく空欄で新規扱い
       isFood:match?!!match.isFood:String(r.isFood||"").trim()==="1",expiryDate:match?(match.expiryDate||""):"", // 食品ステータス・賞味期限も引き継ぎ（一致がなければエクセルのA列から新規判定）
       taiwanCatcher:false, // 台湾キャッチャー利用フラグは月替わりのたびに手動で再設定する仕様（引き継ぎ対象外）
       postponed:false // 延期・発売中止フラグも新規登録時は初期値false（引き継ぎ対象外）
