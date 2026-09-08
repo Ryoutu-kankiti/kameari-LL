@@ -586,20 +586,28 @@ async function batchSetItems(monthKeyStr,itemsArr){
     await batch.commit();
   }
 }
+const structureMigratedMonths=new Set(); // 今回のブラウザセッションで、旧データ構造の移行チェックを既に行った月（無駄な全件読み取りを避けるためのキャッシュ）
+const stockFieldsMigratedMonths=new Set(); // 今回のブラウザセッションで、stock/receivedQtyの移行チェックを既に行った月（同上）
 // 旧バージョン（月1ドキュメントにitems配列）で保存されていたデータがあれば、新しいサブコレクション形式へ一度だけ移行する。既にサブコレクションにデータがあれば何もしない
+// このブラウザセッションで既にチェック済みの月は、無駄な読み取りを避けるため再チェックしない
 async function ensureMonthMigrated(monthKeyStr){
+  if(structureMigratedMonths.has(monthKeyStr))return;
   const existing=await itemsRef(monthKeyStr).limit(1).get();
-  if(!existing.empty)return;
-  const legacy=await db.collection("months").doc(monthKeyStr).get();
-  const legacyItems=legacy.exists?(legacy.data().items||[]):[];
-  if(legacyItems.length)await batchSetItems(monthKeyStr,legacyItems);
+  if(existing.empty){
+    const legacy=await db.collection("months").doc(monthKeyStr).get();
+    const legacyItems=legacy.exists?(legacy.data().items||[]):[];
+    if(legacyItems.length)await batchSetItems(monthKeyStr,legacyItems);
+  }
+  structureMigratedMonths.add(monthKeyStr);
 }
 // 「在庫数(stock)」「在庫数(receivedQty)」フィールドをwarehouseStock（倉庫在庫）へ一本化する一度きりの移行処理。
 // ・倉庫在庫(warehouseStock)に実際の数字が入っている景品（＝その月で棚卸を行った景品）：棚卸の数字を優先し、古いstock・receivedQtyフィールドは削除するだけ
 // ・倉庫在庫が空欄の景品（＝その月はまだ棚卸をしていない）：数字を失わないよう、旧いstock→receivedQtyの順で値を引き継いでwarehouseStockに設定
 // ・stock・receivedQtyのどちらも無い（＝移行済みの）景品はスキップする
 // 書き込みに失敗した場合はそのままエラーを投げる。失敗を検知した呼び出し元はこの月の表示・編集を中止し、利用者に報告すること
+// このブラウザセッションで既にチェック済みの月は、無駄な全件読み取りを避けるため再チェックしない
 async function ensureStockFieldsMigrated(monthKeyStr){
+  if(stockFieldsMigratedMonths.has(monthKeyStr))return;
   const snap=await itemsRef(monthKeyStr).get();
   const targets=[];
   const notBlank=v=>v!==undefined&&v!==null&&v!=="";
@@ -619,6 +627,7 @@ async function ensureStockFieldsMigrated(monthKeyStr){
     chunk.forEach(t=>batch.update(t.ref,t.update));
     await batch.commit();
   }
+  stockFieldsMigratedMonths.add(monthKeyStr); // 書き込みが全て成功した場合のみキャッシュする（失敗時は例外が投げられ、ここには到達しない）
 }
 // 指定した月の景品配列を取得する（キャッシュ済みならそれを返し、無ければ移行処理の上でFirestoreから取得してキャッシュする）
 async function fetchMonthItems(monthKeyStr){
