@@ -54,8 +54,8 @@ input[type="checkbox"]{-webkit-appearance:auto;-moz-appearance:auto;appearance:a
 .kebab-menu.show{display:block}
 .kebab-menu button{display:block;width:100%;text-align:left;padding:10px 14px;border:none;background:transparent;color:#b91c1c;font-weight:700;font-size:14px;cursor:pointer;white-space:nowrap}
 .kebab-menu button:hover{background:#fef2f2}
-/* 在庫状態バッジの色（ok=在庫あり／low=残り少ない／out=在庫切れ／not-arrived=未入荷） */
-.badge{display:inline-block;padding:4px 8px;border-radius:999px;font-size:12px;font-weight:700;margin-top:8px}.ok{background:#dcfce7;color:#166534}.low{background:#fef3c7;color:#92400e}.out{background:#fee2e2;color:#991b1b}.not-arrived{background:#dcfce7;color:#166534}.machine-only{background:#e0e7ff;color:#4338ca}
+/* 在庫状態バッジの色（ok=在庫あり／low=残り少ない／machine-only=マシン内のみ／not-arrived=未入荷） */
+.badge{display:inline-block;padding:4px 8px;border-radius:999px;font-size:12px;font-weight:700;margin-top:8px}.ok{background:#dcfce7;color:#166534}.low{background:#fef3c7;color:#92400e}.not-arrived{background:#dcfce7;color:#166534}.machine-only{background:#e0e7ff;color:#4338ca}
 .actions{display:flex;gap:8px;margin-top:12px}.actions button{flex:1}.empty{text-align:center;color:#667085;padding:30px 10px}
 /* 一覧・棚卸ページでのインライン編集用の小さい入力欄と「＋」ボタン */
 .loc-edit{min-height:34px;padding:4px 8px;font-size:13px;width:auto;flex:1;max-width:200px;border-radius:8px}
@@ -105,7 +105,6 @@ body.dark .kebab-menu{background:#1b202b;border-color:#2b3242}
 body.dark .kebab-menu button:hover{background:#3a1616}
 body.dark .ok,body.dark .not-arrived{background:#123524;color:#6ee7a0}
 body.dark .low{background:#3a2e0d;color:#fbbf24}
-body.dark .out{background:#3a1414;color:#fca5a5}
 body.dark .machine-only{background:#26235c;color:#a5b4fc}
 body.dark .item.sold-out{background:#b91c1c;border-color:#7f1d1d} /* 完売時は視認性重視でライトモードと同じ赤のまま */
 body.dark .item.sold-out .name,body.dark .item.sold-out .meta,body.dark .item.sold-out .stock,body.dark .item.sold-out .stock-label,body.dark .item.sold-out .saved-badge{color:#fff}
@@ -245,7 +244,7 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 <div class="toolbar">
 <input id="search" type="search" placeholder="🔎 商品名・カテゴリで検索" oninput="render()">
 <select id="stockFilter" onchange="render()">
-<option value="all">在庫状態：すべて</option><option value="ok">在庫あり</option><option value="low">残り少ない</option><option value="out">在庫切れ</option><option value="machine-only">マシン内のみ</option><option value="food">食品のみ</option><option value="taiwan">台湾キャッチャーのみ</option>
+<option value="all">在庫状態：すべて</option><option value="ok">在庫あり</option><option value="low">残り少ない</option><option value="machine-only">マシン内のみ</option><option value="food">食品のみ</option><option value="taiwan">台湾キャッチャーのみ</option>
 </select>
 </div>
 </section>
@@ -825,7 +824,7 @@ async function saveDetail(){
     postponed:isStaff()?document.getElementById("d_postponed").checked:!!target.postponed // 社員以外は元の値のまま変更しない
   };
   if(obj.soldOut||obj.postponed){obj.warehouseStock=0;obj.floorStock=0} // 完売・延期/発売中止の場合は倉庫在庫・機械在庫を強制的に0にする
-  applyMachineOnlyLocation(target,obj); // 保存後に「倉庫在庫0・機械在庫あり」になる場合は在庫場所を自動で「マシン内のみ」にする
+  if(!(obj.soldOut||obj.postponed))applyMachineOnlyLocation(target,obj); // 完売・延期/発売中止の場合は機械在庫も無いため対象外とし、それ以外で倉庫在庫が0になる場合のみ在庫場所を自動で「マシン内のみ」にする
   if(currentIdIsDemo){
     Object.assign(target,obj);
     closeDetail();renderDemoPage();
@@ -1022,16 +1021,19 @@ async function confirmArrival(){
 // Dateオブジェクトを<input type="datetime-local">用の文字列("YYYY-MM-DDTHH:MM")に変換
 function toDateTimeLocal(d){const z=n=>String(n).padStart(2,"0");return d.getFullYear()+"-"+z(d.getMonth()+1)+"-"+z(d.getDate())+"T"+z(d.getHours())+":"+z(d.getMinutes())}
 // 倉庫在庫・機械在庫のどちらかを更新する直前に呼ぶ共通処理。
-// 更新後の値で「倉庫在庫が無く、機械在庫だけが残っている」状態になる場合、fieldsに在庫場所「マシン内のみ」を自動追加する。
-// warehouseStock・floorStockの一方だけを更新する場合でも、もう片方は現在値(x)を見て正しく判定できるようにしている
+// ・更新後に倉庫在庫が0になる場合、機械在庫の有無に関わらず、在庫状態バッジと同じ基準でfieldsに在庫場所「マシン内のみ」を自動設定する
+// ・逆に、倉庫在庫が0から補充された場合、在庫場所が以前この処理で自動設定された「マシン内のみ」のままであれば、実態と合わなくなるため空欄に戻す
+//  （利用者が手入力した別の在庫場所はここでは上書きしない）
 function applyMachineOnlyLocation(x,fields){
   const ws=Number("warehouseStock" in fields?fields.warehouseStock:x.warehouseStock)||0;
-  const fs=Number("floorStock" in fields?fields.floorStock:x.floorStock)||0;
-  if(ws<=0&&fs>0)fields.location="マシン内のみ";
+  if(ws<=0){
+    fields.location="マシン内のみ";
+  }else if(!("location" in fields)&&(x.location||"")==="マシン内のみ"){
+    fields.location="";
+  }
 }
 // 一覧右上の「倉庫在庫」欄が変更されたときの保存処理。棚卸ページの倉庫在庫と同じ値を共有する（＝在庫数を兼ねる）。
-// 倉庫在庫が0になり、かつ機械在庫がまだ残っている場合は、棚卸の在庫場所に「マシン内のみ」を自動入力する
-// （完売時や、機械在庫も0の場合は在庫場所を変更しない）
+// 倉庫在庫が0になる場合は、機械在庫の有無に関わらず、棚卸の在庫場所に「マシン内のみ」を自動入力する
 async function updateWarehouseStockFromList(id,val,demo){
   const num=Math.max(0,Math.floor(Number(val)||0));
   if(demo){
@@ -1131,15 +1133,13 @@ async function deleteAllInMonth(){
   await removeAllItemsInMonth(currentMonth);render();
 }
 
-// 倉庫在庫・機械在庫・入荷チェック状態から、在庫状態バッジ(k=内部キー,l=表示ラベル)を判定
-// ・倉庫在庫が0でも機械在庫が残っていれば、バックアップ無しの「マシン内のみ」
+// 倉庫在庫・入荷チェック状態から、在庫状態バッジ(k=内部キー,l=表示ラベル)を判定
 // ・倉庫在庫・機械在庫とも0で、入荷チェックがOFFならまだ届いていないだけの「未入荷」（緑）
-// ・入荷チェック済みで倉庫在庫が0（＝機械在庫も0）なら「在庫切れ」（赤）として区別している
+// ・入荷チェック済みで倉庫在庫が0の場合は、機械在庫の有無に関わらず「マシン内のみ」に統一する（「在庫切れ」表記は廃止）
 function status(warehouseStock,floorStock,arrivalChecked){
-  const ws=Number(warehouseStock||0), fs=Number(floorStock||0);
-  if(ws<=0&&fs>0)return{k:"machine-only",l:"マシン内のみ"};
+  const ws=Number(warehouseStock||0);
   if(ws<=0&&!arrivalChecked)return{k:"not-arrived",l:"未入荷"};
-  return ws<=0?{k:"out",l:"在庫切れ"}:ws<=10?{k:"low",l:"残り少ない"}:{k:"ok",l:"在庫あり"};
+  return ws<=0?{k:"machine-only",l:"マシン内のみ"}:ws<=10?{k:"low",l:"残り少ない"}:{k:"ok",l:"在庫あり"};
 }
 // 現在の月の景品を景品ナンバー順（数字を考慮した自然順）に並べ替えたコピーを返す。ナンバー未登録は末尾に回す
 function sortedItems(){
@@ -1246,7 +1246,7 @@ function renderDemoPage(){
 }
 // 棚卸ページの倉庫在庫・機械在庫のインライン編集欄が変更されたときの保存処理
 // warehouseStockが在庫数を兼ねるフィールドのため、単純にその項目を更新するだけでよい。
-// あわせて、更新後に「倉庫在庫0・機械在庫あり」の状態になれば在庫場所を自動で「マシン内のみ」にする
+// あわせて、更新後に倉庫在庫が0になれば、機械在庫の有無に関わらず在庫場所を自動で「マシン内のみ」にする
 async function updateStockField(id,field,val){
   const item=items().find(i=>i.id===id);if(!item)return;
   const fields={[field]:val};
@@ -1275,7 +1275,7 @@ function cancelStockAdd(event){
   document.body.style.overflow="";
 }
 // 在庫追加ポップアップの「追加する」：入力した数を現在の値に加算する
-// あわせて、更新後に「倉庫在庫0・機械在庫あり」の状態になれば在庫場所を自動で「マシン内のみ」にする
+// あわせて、更新後に倉庫在庫が0になれば、機械在庫の有無に関わらず在庫場所を自動で「マシン内のみ」にする
 async function confirmStockAdd(){
   if(!pendingStockAdd)return;
   const x=items().find(x=>x.id===pendingStockAdd.id);
@@ -1675,7 +1675,7 @@ function clearBulk(){
 // 「在庫状態」絞り込みの選択肢を固定でJSから生成する。
 // データ（食品や台湾キャッチャーの景品が実際にあるか）に関わらず、選択肢自体は常に全て表示されるようにするため
 function initStockFilterOptions(){
-  const opts=[["all","在庫状態：すべて"],["ok","在庫あり"],["low","残り少ない"],["out","在庫切れ"],["food","食品のみ"],["taiwan","台湾キャッチャーのみ"]];
+  const opts=[["all","在庫状態：すべて"],["ok","在庫あり"],["low","残り少ない"],["machine-only","マシン内のみ"],["food","食品のみ"],["taiwan","台湾キャッチャーのみ"]];
   document.getElementById("stockFilter").innerHTML=opts.map(([v,l])=>`<option value="${v}">${l}</option>`).join("");
 }
 // ここから起動処理：ダークモード設定を反映→ログイン状態を確認し、ログイン済みならアプリ本体を初期描画、未ログインならログイン画面を表示
