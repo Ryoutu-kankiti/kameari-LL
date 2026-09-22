@@ -27,7 +27,7 @@ input[type="date"],input[type="datetime-local"]{min-height:44px;line-height:1.3}
 input[type="file"]{border-style:dashed;padding:8px 12px;font-size:13px}
 input[type="checkbox"]{-webkit-appearance:auto;-moz-appearance:auto;appearance:auto}
 /* 検索・絞り込みのツールバー、一覧見出し */
-.toolbar{display:grid;grid-template-columns:1fr 180px;gap:10px}.list-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.toolbar{display:grid;grid-template-columns:1fr 150px 150px;gap:10px}.list-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
 /* 右上「⋮」メニュー（ページ切替・一覧の表示メニュー共通） */
 .menu-wrap{position:relative}.menu-btn{width:44px;padding:0;background:#eef3fb;color:#333;font-size:27px}
 .view-menu{display:none;position:absolute;right:0;top:48px;width:250px;background:#fff;border:1px solid #dfe4ec;border-radius:12px;padding:6px;box-shadow:0 8px 25px rgba(0,0,0,.15);z-index:50}
@@ -210,6 +210,7 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 <select id="inventoryFilter" onchange="renderInventory()">
 <option value="all">表示：すべて</option><option value="incomplete">未入力のみ表示</option>
 </select>
+<select id="inventorySupplierFilter" onchange="renderInventory()"></select>
 </div>
 </section>
 <section class="item-list" id="inventoryList"></section>
@@ -246,6 +247,7 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 <select id="stockFilter" onchange="render()">
 <option value="all">在庫状態：すべて</option><option value="ok">在庫あり</option><option value="low">残り少ない</option><option value="machine-only">マシン内のみ</option><option value="food">食品のみ</option><option value="taiwan">台湾キャッチャーのみ</option>
 </select>
+<select id="supplierFilter" onchange="render()"></select>
 </div>
 </section>
 <section class="item-list" id="itemList"></section>
@@ -784,8 +786,30 @@ async function selectMonth(k){
     return; // 移行できていないデータで表示・編集してしまうことを防ぐため、購読・描画は行わない
   }
   monthUnsub=itemsRef(k).onSnapshot(snap=>{
-    data[k]=snap.docs.map(d=>d.data());
-    if(currentMonth===k){render();renderInventory();}
+    const isFirstLoad=!data[k];
+    const list=data[k]||(data[k]=[]);
+    const changedIds=[];
+    // docChanges()で「今回実際に追加・変更・削除されたドキュメント」だけを取り出し、ローカルキャッシュに反映する。
+    // これにより、変更があった景品だけを特定でき、一覧の全カードを毎回作り直さずに済む
+    snap.docChanges().forEach(change=>{
+      const d=change.doc.data();
+      if(change.type==="removed"){
+        const i=list.findIndex(x=>x.id===d.id);
+        if(i!==-1)list.splice(i,1);
+      }else{
+        const i=list.findIndex(x=>x.id===d.id);
+        if(i!==-1)list[i]=d;else list.push(d);
+      }
+      changedIds.push(d.id);
+    });
+    if(currentMonth===k){
+      // 初回読み込み時や、一括登録・全削除など一度に大量の変更があった場合は、1件ずつ差し替えるより全体を作り直す方が速いため通常のrender()に戻す
+      if(isFirstLoad||changedIds.length>15){
+        render();
+      }else{
+        changedIds.forEach(id=>{updateSingleItemCard(id);updateSingleInventoryCard(id);});
+      }
+    }
   },err=>{console.error("Firestore監視エラー：",err)});
 }
 // 景品詳細ポップアップを開く（一覧の商品名タップから呼ばれる。demo=trueの場合はデモ用ダミーデータを開く）
@@ -830,7 +854,8 @@ async function saveDetail(){
     closeDetail();renderDemoPage();
   }else{
     await updateItemFields(currentMonth,currentId,obj);
-    closeDetail();render();
+    const savedId=currentId;
+    closeDetail();updateSingleItemCard(savedId);
   }
 }
 function v(id){return document.getElementById(id).value} // 指定idの入力欄の値を取得する小さなヘルパー
@@ -894,7 +919,14 @@ function updateScrollTopBtnVisibility(){
   if(!btn)return;
   btn.style.display=(scrollTopBtnEnabled&&window.scrollY>300)?"flex":"none";
 }
-window.addEventListener("scroll",updateScrollTopBtnVisibility);
+// スクロールイベントは非常に高頻度で発生するため、画面の描画タイミング(requestAnimationFrame)に合わせて間引く。
+// 表示/非表示が切り替わるスクロール量や見た目は変わらず、処理回数だけを減らして負荷を軽くする
+let scrollTickPending=false;
+window.addEventListener("scroll",()=>{
+  if(scrollTickPending)return;
+  scrollTickPending=true;
+  requestAnimationFrame(()=>{updateScrollTopBtnVisibility();scrollTickPending=false});
+},{passive:true}); // passive:trueによりブラウザがスクロール処理の完了を待たずに描画でき、スクロールの滑らかさも向上する
 /* ===== システム全体共通：入力欄でEnterを押すと次の入力欄へ移動する（PC・スマホ両対応） =====
    <form>タグを使わずdiv構成のため、素のEnterは何も起きない。そこでdocument全体でkeydownを監視し、
    input/select上でEnterが押されたら、画面内で現在表示中(非表示要素は除外)の次の入力可能要素へフォーカスを移す。
@@ -969,7 +1001,7 @@ async function toggleArrival(id,checked,cb,demo){
       renderDemoPage();
     }else{
       await updateItemFields(currentMonth,id,{arrivalChecked:false,confirmDate:""});
-      render();
+      updateSingleItemCard(id);
     }
   }
 }
@@ -1016,7 +1048,7 @@ async function confirmArrival(){
   document.getElementById("arrivalOverlay").classList.remove("show");
   document.body.style.overflow="";
   pendingArrival=null;
-  demo?renderDemoPage():render();
+  demo?renderDemoPage():updateSingleItemCard(x.id);
 }
 // Dateオブジェクトを<input type="datetime-local">用の文字列("YYYY-MM-DDTHH:MM")に変換
 function toDateTimeLocal(d){const z=n=>String(n).padStart(2,"0");return d.getFullYear()+"-"+z(d.getMonth()+1)+"-"+z(d.getDate())+"T"+z(d.getHours())+":"+z(d.getMinutes())}
@@ -1049,7 +1081,7 @@ async function updateWarehouseStockFromList(id,val,demo){
   applyMachineOnlyLocation(x,fields);
   const updated=await updateItemFields(currentMonth,id,fields);
   if(!updated)return;
-  render();
+  updateSingleItemCard(id);
 }
 // 一覧・棚卸ページの在庫場所インライン編集欄が変更されたときの保存処理（デモの場合はDEMO_ITEMSのみ書き換え）
 async function updateLocation(id,val,demo){
@@ -1060,7 +1092,7 @@ async function updateLocation(id,val,demo){
   }
   const x=await updateItemField(currentMonth,id,'location',val.trim());
   if(!x)return;
-  renderInventory();
+  updateSingleInventoryCard(id);
 }
 
 /* ===== 完売処理（一覧・詳細どちらからも確認ポップアップを挟んで完売にする） ===== */
@@ -1074,7 +1106,7 @@ async function toggleSoldOut(id,checked,cb,demo){
     document.body.style.overflow="hidden";
   }else{
     if(demo){x.soldOut=false;renderDemoPage();}
-    else{await updateItemField(currentMonth,id,'soldOut',false);render();}
+    else{await updateItemField(currentMonth,id,'soldOut',false);updateSingleItemCard(id);}
   }
 }
 // 詳細画面の「完売を確認」チェックボックスが変化したときの処理（保存はsaveDetailを押すまで確定しない）
@@ -1103,7 +1135,7 @@ async function confirmSoldOutAction(){
     if(x){Object.assign(x,{soldOut:true,warehouseStock:0,floorStock:0});renderDemoPage();}
   }else{
     const x=await updateItemFields(currentMonth,pendingSoldOut.id,{soldOut:true,warehouseStock:0,floorStock:0});
-    if(x)render();
+    if(x)updateSingleItemCard(pendingSoldOut.id);
   }
   document.getElementById("soldOutOverlay").classList.remove("show");
   document.body.style.overflow="";
@@ -1171,7 +1203,6 @@ function isEditingWithin(containerId){
   if(!container)return false;
   return(el.tagName==="INPUT"||el.tagName==="TEXTAREA"||el.tagName==="SELECT")&&container.contains(el);
 }
-// 景品一覧（メインページ）を描画する中心的な関数。検索・絞り込み・並び替え・集計・カードHTML生成をまとめて行う
 // 景品1件分のカードHTMLを生成する（景品一覧・デモページ共通）。demo=trueのときはDEMO_ITEMSのみを操作する見本モードになる（実データには一切触れない）
 function renderItemCardHtml(x,demo){
   const s=status(x.warehouseStock,x.floorStock,x.arrivalChecked);
@@ -1182,7 +1213,7 @@ function renderItemCardHtml(x,demo){
   const locOnchange=`onchange="updateLocation(${idLit},this.value${dm})"`;
   const soldOnchange=`onchange="toggleSoldOut(${idLit},this.checked,this${dm})"`;
   const stockOnchange=`onchange="updateWarehouseStockFromList(${idLit},this.value${dm})"`;
-  return `<article class="item ${x.arrivalChecked?"arrival-checked":""} ${x.postponed?"postponed":""} ${x.soldOut?"sold-out":""}">
+  return `<article class="item ${x.arrivalChecked?"arrival-checked":""} ${x.postponed?"postponed":""} ${x.soldOut?"sold-out":""}" id="item-${x.id}">
       <div class="item-top"><div>
         <div class="product-no">景品№ ${esc(x.productNo||"未登録")}</div>
         <div class="name-row"><input class="arrival-check" type="checkbox" ${x.arrivalChecked?"checked":""} ${arrivalOnchange} onclick="event.stopPropagation()"><div class="name" ${nameOnclick}>${esc(x.name)}</div></div>
@@ -1198,16 +1229,17 @@ function renderItemCardHtml(x,demo){
       ${demo?"":savedAtBadgeHtml(x.id)}
     </article>`;
 }
-function render(){
-  document.getElementById("currentMonthLabel").textContent=monthLabel(currentMonth);
-  document.getElementById("listTitle").textContent=monthLabel(currentMonth)+"の景品一覧";
-  const q=normalizeSearchText(document.getElementById("search").value.trim()), sf=document.getElementById("stockFilter").value;
+// 検索・在庫状態・入荷チェックの絞り込み条件を適用し、並び替えまで行った「今表示すべき景品一覧」を返す。
+// render()と、1件だけ差し替えるupdateSingleItemCard()の両方から使う共通ロジック（絞り込み条件がズレないようにするため）
+function visibleSortedItems(){
+  const q=normalizeSearchText(document.getElementById("search").value.trim()), sf=document.getElementById("stockFilter").value, spf=document.getElementById("supplierFilter").value;
   let list=sortedItems().filter(x=>{
     const matchText=normalizeSearchText(x.name+" "+(x.category||"")).includes(q), st=status(x.warehouseStock,x.floorStock,x.arrivalChecked).k;
-    // sf="food"は食品(台湾キャッチャー用も含む)全て、"taiwan"は食品かつ台湾キャッチャー利用のみ、それ以外は在庫状態(ok/low/out)で絞り込み
+    // sf="food"は食品(台湾キャッチャー用も含む)全て、"taiwan"は食品かつ台湾キャッチャー利用のみ、それ以外は在庫状態(ok/low/machine-only/not-arrived)で絞り込み
     const matchStock=sf==="all"?true:sf==="food"?x.isFood===true:sf==="taiwan"?(x.isFood===true&&x.taiwanCatcher===true):st===sf;
+    const matchSupplier=spf==="all"||(x.supplier||"").trim()===spf;
     const matchView=viewFilter==="all"||(viewFilter==="checked"&&x.arrivalChecked===true)||(viewFilter==="unchecked"&&x.arrivalChecked!==true);
-    return matchText&&matchStock&&matchView;
+    return matchText&&matchStock&&matchSupplier&&matchView;
   });
   // 食品／台湾キャッチャーの絞り込み時は、入荷済みを賞味期限が近い順に並べ替え、未入荷はナンバー順のまま後ろに続ける
   if(sf==="food"||sf==="taiwan"){
@@ -1221,6 +1253,14 @@ function render(){
     const unchecked=list.filter(x=>!x.arrivalChecked);
     list=[...checked,...unchecked];
   }
+  return list;
+}
+// 景品一覧（メインページ）を描画する中心的な関数。検索・絞り込み・並び替え・集計・カードHTML生成をまとめて行う
+function render(){
+  document.getElementById("currentMonthLabel").textContent=monthLabel(currentMonth);
+  document.getElementById("listTitle").textContent=monthLabel(currentMonth)+"の景品一覧";
+  populateSupplierFilterOptions("supplierFilter");
+  const list=visibleSortedItems();
   document.getElementById("itemCount").textContent=items().length;
   document.getElementById("soldOutCount").textContent=items().filter(x=>x.soldOut).length;
   document.getElementById("checkedCount").textContent=items().filter(x=>x.arrivalChecked).length;
@@ -1230,6 +1270,43 @@ function render(){
     document.getElementById("itemList").innerHTML=list.length?list.map(x=>renderItemCardHtml(x,false)).join(""):`<div class="card empty">該当する景品がありません。</div>`;
   }
   renderInventory(); // 棚卸ページも常に最新状態に同期しておく（表示中でなくても更新しておき、切り替え時にズレないようにする）
+}
+// 1件の景品を編集したときに、一覧全体ではなく該当カード1枚だけを差し替える（重い全件再描画を避けて動作を軽くするため）。
+// 編集内容によって絞り込み条件に合わなくなった場合はカードを取り除き、逆に新たに条件に合致するようになった場合は正しい位置に挿入する。
+// 景品ナンバー自体が変わる編集は無いため、並び順の再計算だけで位置がずれる心配はない
+// render()と同様、一覧内を編集中の場合はDOM更新を見送る
+function updateSingleItemCard(id){
+  document.getElementById("soldOutCount").textContent=items().filter(x=>x.soldOut).length;
+  document.getElementById("checkedCount").textContent=items().filter(x=>x.arrivalChecked).length;
+  if(isEditingWithin("itemList"))return;
+  const container=document.getElementById("itemList");
+  if(!container)return;
+  const list=visibleSortedItems();
+  const idx=list.findIndex(x=>x.id===id);
+  const existingEl=document.getElementById("item-"+id);
+  if(idx===-1){
+    // 絞り込み条件に合わなくなった（または削除された）ため取り除く
+    if(existingEl)existingEl.remove();
+    if(list.length===0&&!container.querySelector(".card.empty")){
+      container.innerHTML=`<div class="card empty">該当する景品がありません。</div>`;
+    }
+    return;
+  }
+  const emptyCard=container.querySelector(".card.empty");
+  if(emptyCard)emptyCard.remove(); // 表示対象が0件から1件以上に変わったので「該当なし」の表示を消す
+  const html=renderItemCardHtml(list[idx],false);
+  if(existingEl){
+    existingEl.outerHTML=html; // 同じ位置のカードの中身だけを差し替える
+  }else{
+    // これまで表示されていなかったカードが新たに条件に合致したため、正しい位置に挿入する
+    const nextItem=list[idx+1];
+    const nextEl=nextItem?document.getElementById("item-"+nextItem.id):null;
+    const wrap=document.createElement("div");
+    wrap.innerHTML=html;
+    const node=wrap.firstElementChild;
+    if(nextEl)container.insertBefore(node,nextEl);
+    else container.appendChild(node);
+  }
 }
 
 /* ===== デモンストレーションページ（初めて使う人向けの研修用。実データには一切触れないダミー表示） ===== */
@@ -1253,7 +1330,7 @@ async function updateStockField(id,field,val){
   applyMachineOnlyLocation(item,fields);
   const x=await updateItemFields(currentMonth,id,fields);
   if(!x)return;
-  renderInventory();
+  updateSingleInventoryCard(id);
 }
 let pendingStockAdd=null; // 「＋」ボタンで在庫追加中の対象（id・対象フィールド）
 // 棚卸の「＋」ボタン：後から数えた分を加算するポップアップを開く
@@ -1290,8 +1367,9 @@ async function confirmStockAdd(){
   await updateItemFields(currentMonth,pendingStockAdd.id,fields);
   document.getElementById("stockAddOverlay").classList.remove("show");
   document.body.style.overflow="";
+  const savedId=pendingStockAdd.id;
   pendingStockAdd=null;
-  renderInventory();
+  updateSingleInventoryCard(savedId);
 }
 // 棚卸の必須項目（倉庫在庫・機械在庫・在庫場所）が全て入力済みかを判定する
 // 例外：倉庫在庫と機械在庫が両方0の場合は在庫場所が空でも「入力済み」扱いにする
@@ -1310,27 +1388,27 @@ function isInventoryComplete(x){
 function handleEnterCommit(e){
   if(e.key==="Enter"){e.preventDefault();e.target.blur();}
 }
-function renderInventory(){
-  const wrap=document.getElementById("inventoryList");
-  if(!wrap)return;
-  document.getElementById("inventoryTitle").textContent=monthLabel(currentMonth)+"の棚卸";
+// 検索・「未入力のみ」絞り込みを適用した「今表示すべき棚卸一覧」を返す。renderInventory()とupdateSingleInventoryCard()の共通ロジック
+function visibleSortedInventoryItems(){
   const q=normalizeSearchText((document.getElementById("inventorySearch").value||"").trim());
   const inf=document.getElementById("inventoryFilter").value;
-  const list=sortedItems().filter(x=>{
+  const spf=document.getElementById("inventorySupplierFilter").value;
+  return sortedItems().filter(x=>{
     const matchText=normalizeSearchText(x.name).includes(q);
     const matchFilter=inf==="incomplete"?!isInventoryComplete(x):true;
-    return matchText&&matchFilter;
+    const matchSupplier=spf==="all"||(x.supplier||"").trim()===spf;
+    return matchText&&matchFilter&&matchSupplier;
   });
-  // 誰かがこの棚卸一覧内の入力欄を今まさに編集中の場合は、innerHTMLの作り直しを見送る（入力中の内容が消えるのを防ぐため）
-  if(isEditingWithin("inventoryList"))return;
-  wrap.innerHTML=list.length?list.map(x=>{
-    const ws=x.warehouseStock, fs=x.floorStock, loc=x.location;
-    const wsBlank=ws===undefined||ws===null||String(ws).trim()==="";
-    const fsBlank=fs===undefined||fs===null||String(fs).trim()==="";
-    const locBlank=loc===undefined||loc===null||String(loc).trim()==="";
-    const bothZero=!wsBlank&&!fsBlank&&Number(ws)===0&&Number(fs)===0;
-    const locRequired=!bothZero; // 倉庫在庫・機械在庫が共に0でなければ在庫場所は必須
-    return `<article class="item">
+}
+// 棚卸1件分のカードHTMLを生成する
+function renderInventoryCardHtml(x){
+  const ws=x.warehouseStock, fs=x.floorStock, loc=x.location;
+  const wsBlank=ws===undefined||ws===null||String(ws).trim()==="";
+  const fsBlank=fs===undefined||fs===null||String(fs).trim()==="";
+  const locBlank=loc===undefined||loc===null||String(loc).trim()==="";
+  const bothZero=!wsBlank&&!fsBlank&&Number(ws)===0&&Number(fs)===0;
+  const locRequired=!bothZero; // 倉庫在庫・機械在庫が共に0でなければ在庫場所は必須
+  return `<article class="item" id="inv-item-${x.id}">
       <div class="item-top"><div>
         <div class="product-no">景品№ ${esc(x.productNo||"未登録")}</div>
         <div class="name" onclick="openDetail(${x.id})" style="cursor:pointer">${esc(x.name)}${x.isUnknown?' <span class="badge" style="background:#fee2e2;color:#dc2626">不明景品</span>':""}</div>
@@ -1340,7 +1418,46 @@ function renderInventory(){
       </div></div>
       ${savedAtBadgeHtml(x.id)}
     </article>`;
-  }).join(""):`<div class="card empty">該当する景品がありません。</div>`;
+}
+function renderInventory(){
+  const wrap=document.getElementById("inventoryList");
+  if(!wrap)return;
+  document.getElementById("inventoryTitle").textContent=monthLabel(currentMonth)+"の棚卸";
+  populateSupplierFilterOptions("inventorySupplierFilter");
+  const list=visibleSortedInventoryItems();
+  // 誰かがこの棚卸一覧内の入力欄を今まさに編集中の場合は、innerHTMLの作り直しを見送る（入力中の内容が消えるのを防ぐため）
+  if(isEditingWithin("inventoryList"))return;
+  wrap.innerHTML=list.length?list.map(x=>renderInventoryCardHtml(x)).join(""):`<div class="card empty">該当する景品がありません。</div>`;
+}
+// 1件の景品を編集したときに、棚卸一覧全体ではなく該当カード1枚だけを差し替える（景品一覧側のupdateSingleItemCardと同じ考え方）
+function updateSingleInventoryCard(id){
+  const wrap=document.getElementById("inventoryList");
+  if(!wrap)return;
+  if(isEditingWithin("inventoryList"))return;
+  const list=visibleSortedInventoryItems();
+  const idx=list.findIndex(x=>x.id===id);
+  const existingEl=document.getElementById("inv-item-"+id);
+  if(idx===-1){
+    if(existingEl)existingEl.remove();
+    if(list.length===0&&!wrap.querySelector(".card.empty")){
+      wrap.innerHTML=`<div class="card empty">該当する景品がありません。</div>`;
+    }
+    return;
+  }
+  const emptyCard=wrap.querySelector(".card.empty");
+  if(emptyCard)emptyCard.remove();
+  const html=renderInventoryCardHtml(list[idx]);
+  if(existingEl){
+    existingEl.outerHTML=html;
+  }else{
+    const nextItem=list[idx+1];
+    const nextEl=nextItem?document.getElementById("inv-item-"+nextItem.id):null;
+    const w=document.createElement("div");
+    w.innerHTML=html;
+    const node=w.firstElementChild;
+    if(nextEl)wrap.insertBefore(node,nextEl);
+    else wrap.appendChild(node);
+  }
 }
 // 「エクセル用に出力」ポップアップを開く
 function openExportOverlay(){
@@ -1677,6 +1794,17 @@ function clearBulk(){
 function initStockFilterOptions(){
   const opts=[["all","在庫状態：すべて"],["ok","在庫あり"],["low","残り少ない"],["machine-only","マシン内のみ"],["food","食品のみ"],["taiwan","台湾キャッチャーのみ"]];
   document.getElementById("stockFilter").innerHTML=opts.map(([v,l])=>`<option value="${v}">${l}</option>`).join("");
+}
+// 発注先フィルターの選択肢を、現在の月の景品データから実際に使われている発注先だけを拾って作り直す。
+// 選択中の値がまだ選択肢に存在する場合はそのまま維持し、無くなった場合（絞り込み中に該当データが0件になった等）は「すべて」に戻す。
+// render()・renderInventory()の中から呼ぶことで、景品一覧・棚卸どちらのフィルターも常に同じ発注先一覧で揃う
+function populateSupplierFilterOptions(selectId){
+  const el=document.getElementById(selectId);
+  if(!el)return;
+  const current=el.value;
+  const suppliers=Array.from(new Set(items().map(x=>(x.supplier||"").trim()).filter(s=>s))).sort((a,b)=>a.localeCompare(b,"ja"));
+  el.innerHTML=`<option value="all">発注先：すべて</option>`+suppliers.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join("");
+  el.value=suppliers.includes(current)?current:"all";
 }
 // ここから起動処理：ダークモード設定を反映→ログイン状態を確認し、ログイン済みならアプリ本体を初期描画、未ログインならログイン画面を表示
 applyDarkModePreference();
