@@ -32,6 +32,10 @@ input[type="checkbox"]{-webkit-appearance:auto;-moz-appearance:auto;appearance:a
 .menu-wrap{position:relative}.menu-btn{width:44px;padding:0;background:#eef3fb;color:#333;font-size:27px}
 .view-menu{display:none;position:absolute;right:0;top:48px;width:250px;background:#fff;border:1px solid #dfe4ec;border-radius:12px;padding:6px;box-shadow:0 8px 25px rgba(0,0,0,.15);z-index:50}
 .view-menu.show{display:block}.view-menu button{background:#fff;color:#222;text-align:left;margin:2px 0}.view-menu button:hover{background:#f3f6fa}
+.supplier-menu{max-height:300px;overflow-y:auto}
+.supplier-menu label{display:flex;align-items:center;gap:8px;padding:7px 8px;font-size:14px;cursor:pointer;border-radius:8px;margin:0}
+.supplier-menu label:hover{background:#f3f6fa}
+.supplier-menu input[type=checkbox]{width:18px;min-height:18px;flex:0 0 auto}
 /* 品目数・総在庫数・入荷チェックONの集計カード */
 .summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}.stat{background:#fff;border-radius:14px;padding:14px;box-shadow:0 2px 10px rgba(0,0,0,.05)}
 .stat-label{color:#667085;font-size:13px}.stat-value{font-size:26px;font-weight:800;margin-top:4px}
@@ -97,6 +101,8 @@ body.dark button.danger{background:#ef4444;color:#fff}
 body.dark .menu-btn{background:#232a38;color:#e5e7eb}
 body.dark .view-menu button{background:#1b202b;color:#e5e7eb}
 body.dark .view-menu button:hover{background:#232a38}
+body.dark .supplier-menu label{color:#e5e7eb}
+body.dark .supplier-menu label:hover{background:#232a38}
 body.dark .stat-label,body.dark .meta,body.dark .help,body.dark .detail-grid label,body.dark .bulk-table th,body.dark .drop-zone,body.dark .saved-badge{color:#9aa4b2}
 body.dark .name{color:#8ab4f8}
 body.dark .product-no{background:#232a38;color:#8ab4f8}
@@ -204,13 +210,16 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 <h2 id="inventoryTitle">棚卸</h2>
 <label style="display:flex;align-items:center;gap:8px;margin:0 0 14px">棚卸する月<select id="inventoryMonthGrid" onchange="selectMonth(this.value)" style="max-width:220px"></select></label>
 <div class="help">在庫場所・倉庫在庫・機械在庫をその場で入力できます。＋ボタンで、後から数えた分を今の数に加算できます。「エクセル用に出力」を行うと、倉庫在庫＋機械在庫の合計が各景品の在庫数にも反映されます。倉庫在庫・機械在庫・在庫場所は入力必須です（倉庫在庫と機械在庫が共に0の場合、在庫場所は不要です）。</div>
-<div class="detail-actions" style="margin-top:14px"><button class="secondary" onclick="openExportOverlay()">エクセル用に出力</button><button class="secondary" onclick="openUnknownItemOverlay()">不明景品の追加</button></div>
+<div class="detail-actions" style="margin-top:14px"><button class="secondary" onclick="openExportOverlay()">エクセル用に出力</button><button class="secondary" onclick="openUnknownItemOverlay()">不明景品の追加</button><button class="secondary" id="soldOutFixBtn" style="display:none" onclick="fixSoldOutStockMismatch()">完売の在庫不整合を一括修正</button></div>
 <div class="toolbar" style="margin-top:14px">
 <input id="inventorySearch" type="search" placeholder="🔎 景品名で検索" oninput="renderInventory()">
 <select id="inventoryFilter" onchange="renderInventory()">
 <option value="all">表示：すべて</option><option value="incomplete">未入力のみ表示</option>
 </select>
-<select id="inventorySupplierFilter" onchange="renderInventory()"></select>
+<div class="menu-wrap">
+<button type="button" class="secondary" id="inventorySupplierFilterBtn" onclick="toggleSupplierMenu(event,'inventory')" style="width:100%;text-align:left">発注先：すべて ▾</button>
+<div id="inventorySupplierMenu" class="view-menu supplier-menu" onclick="event.stopPropagation()"><div id="inventorySupplierMenuList"></div></div>
+</div>
 </div>
 </section>
 <section class="item-list" id="inventoryList"></section>
@@ -247,7 +256,10 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 <select id="stockFilter" onchange="render()">
 <option value="all">在庫状態：すべて</option><option value="ok">在庫あり</option><option value="low">残り少ない</option><option value="machine-only">マシン内のみ</option><option value="food">食品のみ</option><option value="taiwan">台湾キャッチャーのみ</option>
 </select>
-<select id="supplierFilter" onchange="render()"></select>
+<div class="menu-wrap">
+<button type="button" class="secondary" id="supplierFilterBtn" onclick="toggleSupplierMenu(event,'main')" style="width:100%;text-align:left">発注先：すべて ▾</button>
+<div id="supplierMenu" class="view-menu supplier-menu" onclick="event.stopPropagation()"><div id="supplierMenuList"></div></div>
+</div>
 </div>
 </section>
 <section class="item-list" id="itemList"></section>
@@ -493,6 +505,7 @@ function enterApp(){
   document.getElementById("appMain").style.display="";
   document.getElementById("loggedInName").textContent=currentEmployee.email+"（"+currentEmployee.status+"）";
   document.getElementById("bulkMenuBtn").style.display=isStaff()?"":"none"; // 一括登録は社員のみメニューに表示
+  document.getElementById("soldOutFixBtn").style.display=isStaff()?"":"none"; // 完売の在庫不整合一括修正も社員のみ
   applyDarkModePreference();
   initStockFilterOptions();
   renderMonths();
@@ -975,6 +988,7 @@ function renderBulkMonthOptions(){
 document.addEventListener("click",()=>{
   const m=document.getElementById("viewMenu");if(m)m.classList.remove("show");
   const n=document.getElementById("navMenu");if(n)n.classList.remove("show");
+  document.querySelectorAll(".supplier-menu.show").forEach(el=>el.classList.remove("show"));
 });
 
 /* ===== 入荷処理ポップアップ（一覧の入荷チェックをONにすると開く） ===== */
@@ -1232,12 +1246,12 @@ function renderItemCardHtml(x,demo){
 // 検索・在庫状態・入荷チェックの絞り込み条件を適用し、並び替えまで行った「今表示すべき景品一覧」を返す。
 // render()と、1件だけ差し替えるupdateSingleItemCard()の両方から使う共通ロジック（絞り込み条件がズレないようにするため）
 function visibleSortedItems(){
-  const q=normalizeSearchText(document.getElementById("search").value.trim()), sf=document.getElementById("stockFilter").value, spf=document.getElementById("supplierFilter").value;
+  const q=normalizeSearchText(document.getElementById("search").value.trim()), sf=document.getElementById("stockFilter").value;
   let list=sortedItems().filter(x=>{
     const matchText=normalizeSearchText(x.name+" "+(x.category||"")).includes(q), st=status(x.warehouseStock,x.floorStock,x.arrivalChecked).k;
     // sf="food"は食品(台湾キャッチャー用も含む)全て、"taiwan"は食品かつ台湾キャッチャー利用のみ、それ以外は在庫状態(ok/low/machine-only/not-arrived)で絞り込み
     const matchStock=sf==="all"?true:sf==="food"?x.isFood===true:sf==="taiwan"?(x.isFood===true&&x.taiwanCatcher===true):st===sf;
-    const matchSupplier=spf==="all"||(x.supplier||"").trim()===spf;
+    const matchSupplier=supplierFilterSet.size===0||supplierFilterSet.has((x.supplier||"").trim());
     const matchView=viewFilter==="all"||(viewFilter==="checked"&&x.arrivalChecked===true)||(viewFilter==="unchecked"&&x.arrivalChecked!==true);
     return matchText&&matchStock&&matchSupplier&&matchView;
   });
@@ -1259,7 +1273,7 @@ function visibleSortedItems(){
 function render(){
   document.getElementById("currentMonthLabel").textContent=monthLabel(currentMonth);
   document.getElementById("listTitle").textContent=monthLabel(currentMonth)+"の景品一覧";
-  populateSupplierFilterOptions("supplierFilter");
+  populateSupplierFilterOptions("main");
   const list=visibleSortedItems();
   document.getElementById("itemCount").textContent=items().length;
   document.getElementById("soldOutCount").textContent=items().filter(x=>x.soldOut).length;
@@ -1392,11 +1406,10 @@ function handleEnterCommit(e){
 function visibleSortedInventoryItems(){
   const q=normalizeSearchText((document.getElementById("inventorySearch").value||"").trim());
   const inf=document.getElementById("inventoryFilter").value;
-  const spf=document.getElementById("inventorySupplierFilter").value;
   return sortedItems().filter(x=>{
     const matchText=normalizeSearchText(x.name).includes(q);
     const matchFilter=inf==="incomplete"?!isInventoryComplete(x):true;
-    const matchSupplier=spf==="all"||(x.supplier||"").trim()===spf;
+    const matchSupplier=inventorySupplierFilterSet.size===0||inventorySupplierFilterSet.has((x.supplier||"").trim());
     return matchText&&matchFilter&&matchSupplier;
   });
 }
@@ -1423,7 +1436,7 @@ function renderInventory(){
   const wrap=document.getElementById("inventoryList");
   if(!wrap)return;
   document.getElementById("inventoryTitle").textContent=monthLabel(currentMonth)+"の棚卸";
-  populateSupplierFilterOptions("inventorySupplierFilter");
+  populateSupplierFilterOptions("inventory");
   const list=visibleSortedInventoryItems();
   // 誰かがこの棚卸一覧内の入力欄を今まさに編集中の場合は、innerHTMLの作り直しを見送る（入力中の内容が消えるのを防ぐため）
   if(isEditingWithin("inventoryList"))return;
@@ -1505,6 +1518,20 @@ async function confirmUnknownItem(){
   if(!saved)return; // 保存に失敗した場合はポップアップを開いたままにし、入力し直せるようにする
   cancelUnknownItem();
   render();
+}
+// 「完売の在庫不整合を一括修正」：完売チェックが入っているのに倉庫在庫・機械在庫が0になっていない景品（自動ゼロ化の実装前に完売にした古いデータなど）を
+// この月のデータからまとめて探し出し、倉庫在庫・機械在庫を0に修正する。読み込みは既にキャッシュ済みのdata[currentMonth]を使い、
+// 書き込みも既存のupdateItemsFieldsBulk（バッチ書き込み）を使うだけなので、常時動く処理ではなく負荷は増えない
+async function fixSoldOutStockMismatch(){
+  const targets=items().filter(x=>x.soldOut===true&&(Number(x.warehouseStock||0)!==0||Number(x.floorStock||0)!==0));
+  if(!targets.length){alert("完売チェックと在庫の不整合は見つかりませんでした。");return}
+  const names=targets.slice(0,10).map(x=>"・"+x.name).join("\n")+(targets.length>10?"\n…他"+(targets.length-10)+"件":"");
+  if(!confirm(targets.length+"件、完売チェックが入っているのに倉庫在庫・機械在庫が0になっていない景品があります。\n\n"+names+"\n\nこれらの倉庫在庫・機械在庫をすべて0に修正します。よろしいですか？"))return;
+  const updates=targets.map(x=>({id:x.id,fields:{warehouseStock:0,floorStock:0}}));
+  const ok=await updateItemsFieldsBulk(currentMonth,updates);
+  if(!ok)return; // 失敗時はupdateItemsFieldsBulk内で既にエラー通知・画面の再描画まで行われている
+  render();renderInventory();
+  alert(targets.length+"件を修正しました。");
 }
 // エクセル出力ポップアップの「出力する」：未入力チェック→倉庫在庫＋機械在庫を各景品の在庫数へ反映→xlsxファイルをダウンロード
 async function confirmExport(){
@@ -1795,16 +1822,45 @@ function initStockFilterOptions(){
   const opts=[["all","在庫状態：すべて"],["ok","在庫あり"],["low","残り少ない"],["machine-only","マシン内のみ"],["food","食品のみ"],["taiwan","台湾キャッチャーのみ"]];
   document.getElementById("stockFilter").innerHTML=opts.map(([v,l])=>`<option value="${v}">${l}</option>`).join("");
 }
-// 発注先フィルターの選択肢を、現在の月の景品データから実際に使われている発注先だけを拾って作り直す。
-// 選択中の値がまだ選択肢に存在する場合はそのまま維持し、無くなった場合（絞り込み中に該当データが0件になった等）は「すべて」に戻す。
-// render()・renderInventory()の中から呼ぶことで、景品一覧・棚卸どちらのフィルターも常に同じ発注先一覧で揃う
-function populateSupplierFilterOptions(selectId){
-  const el=document.getElementById(selectId);
-  if(!el)return;
-  const current=el.value;
+// 発注先チェックボックスの選択状態（複数選択可）。空集合＝絞り込みなし（すべて表示）
+let supplierFilterSet=new Set(), inventorySupplierFilterSet=new Set();
+// which("main"|"inventory")に応じて、対応する要素ID・選択集合・再描画関数をまとめて返す
+function supplierFilterCtx(which){
+  return which==="inventory"
+    ?{set:inventorySupplierFilterSet,btnId:"inventorySupplierFilterBtn",listId:"inventorySupplierMenuList",menuId:"inventorySupplierMenu",render:renderInventory}
+    :{set:supplierFilterSet,btnId:"supplierFilterBtn",listId:"supplierMenuList",menuId:"supplierMenu",render:render};
+}
+// 発注先の絞り込みメニューの開閉（他に開いているメニューがあれば閉じてから開く）
+function toggleSupplierMenu(e,which){
+  e.stopPropagation();
+  const ctx=supplierFilterCtx(which);
+  document.querySelectorAll(".supplier-menu.show").forEach(m=>{if(m.id!==ctx.menuId)m.classList.remove("show")});
+  document.getElementById(ctx.menuId).classList.toggle("show");
+}
+// 発注先チェックボックスの一覧を、現在の月の景品データから実際に使われている発注先だけを拾って作り直す。
+// 選択中の発注先が引き続き選択肢に存在する場合はチェックを維持し、無くなった場合（対象が0件になった等）は選択から外す
+function populateSupplierFilterOptions(which){
+  const ctx=supplierFilterCtx(which);
   const suppliers=Array.from(new Set(items().map(x=>(x.supplier||"").trim()).filter(s=>s))).sort((a,b)=>a.localeCompare(b,"ja"));
-  el.innerHTML=`<option value="all">発注先：すべて</option>`+suppliers.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join("");
-  el.value=suppliers.includes(current)?current:"all";
+  Array.from(ctx.set).forEach(s=>{if(!suppliers.includes(s))ctx.set.delete(s)});
+  const listEl=document.getElementById(ctx.listId);
+  if(listEl){
+    listEl.innerHTML=suppliers.length?suppliers.map(s=>`<label><input type="checkbox" data-supplier="${esc(s)}" ${ctx.set.has(s)?"checked":""} onchange="toggleSupplierFilterValue('${which}',this.dataset.supplier,this.checked)">${esc(s)}</label>`).join(""):`<div style="padding:8px;color:#667085;font-size:13px">発注先のデータがありません</div>`;
+  }
+  updateSupplierFilterButtonLabel(which);
+}
+// 発注先フィルターの開閉ボタンの表示文言を、現在の選択件数に応じて更新する
+function updateSupplierFilterButtonLabel(which){
+  const ctx=supplierFilterCtx(which);
+  const btn=document.getElementById(ctx.btnId);
+  if(btn)btn.textContent=(ctx.set.size===0?"発注先：すべて":"発注先："+ctx.set.size+"件選択中")+" ▾";
+}
+// 発注先チェックボックスが変更されたときの処理。選択集合を更新し、ボタン表示・一覧の両方を即座に反映する
+function toggleSupplierFilterValue(which,supplier,checked){
+  const ctx=supplierFilterCtx(which);
+  if(checked)ctx.set.add(supplier);else ctx.set.delete(supplier);
+  updateSupplierFilterButtonLabel(which);
+  ctx.render();
 }
 // ここから起動処理：ダークモード設定を反映→ログイン状態を確認し、ログイン済みならアプリ本体を初期描画、未ログインならログイン画面を表示
 applyDarkModePreference();
