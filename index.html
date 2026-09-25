@@ -27,7 +27,7 @@ input[type="date"],input[type="datetime-local"]{min-height:44px;line-height:1.3}
 input[type="file"]{border-style:dashed;padding:8px 12px;font-size:13px}
 input[type="checkbox"]{-webkit-appearance:auto;-moz-appearance:auto;appearance:auto}
 /* 検索・絞り込みのツールバー、一覧見出し */
-.toolbar{display:grid;grid-template-columns:1fr 150px 150px;gap:10px}.list-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.toolbar{display:grid;grid-template-columns:1fr 150px 150px;gap:10px}.toolbar.toolbar-4col{grid-template-columns:1fr 150px 130px 150px}.list-title{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px}
 /* 右上「⋮」メニュー（ページ切替・一覧の表示メニュー共通） */
 .menu-wrap{position:relative}.menu-btn{width:44px;padding:0;background:#eef3fb;color:#333;font-size:27px}
 .view-menu{display:none;position:absolute;right:0;top:48px;width:250px;background:#fff;border:1px solid #dfe4ec;border-radius:12px;padding:6px;box-shadow:0 8px 25px rgba(0,0,0,.15);z-index:50}
@@ -247,7 +247,7 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 <section class="card">
 <div class="list-title">
 <h2 id="listTitle">景品一覧</h2>
-<div style="display:flex;align-items:center;gap:8px">
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px">
 <button type="button" class="secondary" id="listViewModeBtn" onclick="toggleListViewMode()" style="width:auto;min-height:36px;padding:6px 12px;font-size:13px;white-space:nowrap">簡易表示に切替</button>
 <div class="menu-wrap">
 <button class="menu-btn" onclick="toggleMenu(event)">⋮</button>
@@ -260,7 +260,7 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 </div>
 </div>
 </div>
-<div class="toolbar">
+<div class="toolbar toolbar-4col">
 <input id="search" type="search" placeholder="🔎 商品名・カテゴリで検索" oninput="render()">
 <select id="stockFilter" onchange="render()">
 <option value="all">在庫状態：すべて</option><option value="ok">在庫あり</option><option value="low">残り少ない</option><option value="machine-only">マシン内のみ</option><option value="food">食品のみ</option><option value="taiwan">台湾キャッチャーのみ</option>
@@ -268,6 +268,10 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 <div class="menu-wrap">
 <button type="button" class="secondary" id="supplierFilterBtn" onclick="toggleSupplierMenu(event,'main')" style="width:100%;text-align:left">発注先：すべて ▾</button>
 <div id="supplierMenu" class="view-menu supplier-menu" onclick="event.stopPropagation()"><div id="supplierMenuList"></div></div>
+</div>
+<div class="menu-wrap">
+<button type="button" class="secondary" id="deliveryDateFilterBtn" onclick="toggleDeliveryDateMenu(event)" style="width:100%;text-align:left">納品予定日：すべて ▾</button>
+<div id="deliveryDateMenu" class="view-menu supplier-menu" onclick="event.stopPropagation()"><div id="deliveryDateMenuList"></div></div>
 </div>
 </div>
 </section>
@@ -1265,6 +1269,7 @@ function renderItemCardHtml(x,demo){
       <div class="item-top"><div>
         <div class="product-no">景品№ ${esc(x.productNo||"未登録")}</div>
         <div class="name-row"><input class="arrival-check" type="checkbox" ${x.arrivalChecked?"checked":""} ${arrivalOnchange} onclick="event.stopPropagation()"><div class="name" ${nameOnclick}>${esc(x.name)}</div></div>
+        <div class="meta">発注先：${esc(x.supplier||"未登録")}</div>
         <div class="meta">込単価：${x.unitPrice!==""&&x.unitPrice!=null?"¥"+esc(x.unitPrice):"未登録"}｜納品予定日：${esc(x.deliveryDate||"未登録")}</div>
         <div class="meta" style="display:flex;align-items:center;gap:6px">在庫場所：<input class="loc-edit" onclick="event.stopPropagation()" ${locOnchange} value="${esc(x.location||"")}" placeholder="未登録"></div>
         ${x.isFood?`<div class="meta" style="color:#b45309;font-weight:700">🍡 賞味期限：${esc(x.expiryDate||"未登録")}</div>`:""}
@@ -1286,8 +1291,9 @@ function visibleSortedItems(){
     // sf="food"は食品(台湾キャッチャー用も含む)全て、"taiwan"は食品かつ台湾キャッチャー利用のみ、それ以外は在庫状態(ok/low/machine-only/not-arrived)で絞り込み
     const matchStock=sf==="all"?true:sf==="food"?x.isFood===true:sf==="taiwan"?(x.isFood===true&&x.taiwanCatcher===true):st===sf;
     const matchSupplier=supplierFilterSet.size===0||supplierFilterSet.has((x.supplier||"").trim());
+    const matchDeliveryDate=deliveryDateFilterSet.size===0||deliveryDateFilterSet.has((x.deliveryDate||"").trim());
     const matchView=viewFilter==="all"||(viewFilter==="checked"&&x.arrivalChecked===true)||(viewFilter==="unchecked"&&x.arrivalChecked!==true);
-    return matchText&&matchStock&&matchSupplier&&matchView;
+    return matchText&&matchStock&&matchSupplier&&matchDeliveryDate&&matchView;
   });
   // 食品／台湾キャッチャーの絞り込み時は、入荷済みを賞味期限が近い順に並べ替え、未入荷はナンバー順のまま後ろに続ける
   if(sf==="food"||sf==="taiwan"){
@@ -1308,6 +1314,7 @@ function render(){
   document.getElementById("currentMonthLabel").textContent=monthLabel(currentMonth);
   document.getElementById("listTitle").textContent=monthLabel(currentMonth)+"の景品一覧";
   populateSupplierFilterOptions("main");
+  populateDeliveryDateFilterOptions();
   const list=visibleSortedItems();
   document.getElementById("itemCount").textContent=items().length;
   document.getElementById("soldOutCount").textContent=items().filter(x=>x.soldOut).length;
@@ -1920,6 +1927,31 @@ function toggleSupplierFilterValue(which,supplier,checked){
   if(checked)ctx.set.add(supplier);else ctx.set.delete(supplier);
   updateSupplierFilterButtonLabel(which);
   ctx.render();
+}
+// 納品予定日フィルター（発注先フィルターと同じ、実際に使われている値だけを選択肢にするチェックボックス複数選択方式）。景品一覧のみ対応
+let deliveryDateFilterSet=new Set();
+function toggleDeliveryDateMenu(e){
+  e.stopPropagation();
+  document.querySelectorAll(".supplier-menu.show").forEach(m=>{if(m.id!=="deliveryDateMenu")m.classList.remove("show")});
+  document.getElementById("deliveryDateMenu").classList.toggle("show");
+}
+function populateDeliveryDateFilterOptions(){
+  const dates=Array.from(new Set(items().map(x=>(x.deliveryDate||"").trim()).filter(v=>v))).sort((a,b)=>a.localeCompare(b,"ja"));
+  Array.from(deliveryDateFilterSet).forEach(v=>{if(!dates.includes(v))deliveryDateFilterSet.delete(v)});
+  const listEl=document.getElementById("deliveryDateMenuList");
+  if(listEl){
+    listEl.innerHTML=dates.length?dates.map(v=>`<label><input type="checkbox" data-value="${esc(v)}" ${deliveryDateFilterSet.has(v)?"checked":""} onchange="toggleDeliveryDateFilterValue(this.dataset.value,this.checked)">${esc(v)}</label>`).join(""):`<div style="padding:8px;color:#667085;font-size:13px">納品予定日のデータがありません</div>`;
+  }
+  updateDeliveryDateFilterButtonLabel();
+}
+function updateDeliveryDateFilterButtonLabel(){
+  const btn=document.getElementById("deliveryDateFilterBtn");
+  if(btn)btn.textContent=(deliveryDateFilterSet.size===0?"納品予定日：すべて":"納品予定日："+deliveryDateFilterSet.size+"件選択中")+" ▾";
+}
+function toggleDeliveryDateFilterValue(value,checked){
+  if(checked)deliveryDateFilterSet.add(value);else deliveryDateFilterSet.delete(value);
+  updateDeliveryDateFilterButtonLabel();
+  render();
 }
 // ここから起動処理：ダークモード設定を反映→ログイン状態を確認し、ログイン済みならアプリ本体を初期描画、未ログインならログイン画面を表示
 applyDarkModePreference();
