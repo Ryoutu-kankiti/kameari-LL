@@ -1833,8 +1833,9 @@ async function commitBulk(){
         includedShikiri:r.includedShikiri,purchasePrice:r.purchasePrice,unitPrice:r.unitPrice,
         notes:r.notes,deliveryDate:r.deliveryDate,confirmDate:r.confirmDate||"",
         warehouseAmount:r.warehouseAmount||"",floorAmount:r.floorAmount||"",
+        isFood:String(r.isFood||"").trim()==="1", // 食品判定は常に今回のエクセル(A列)の内容を優先し、既存の値があっても上書きする
         ...(soldOrPostponed?{warehouseStock:0,floorStock:0}:{floorStock:r.floorStock||""})
-        // 在庫場所(location)・入荷チェック・完売・食品ステータス・賞味期限などは対象に含めず、既存の値をそのまま維持する
+        // 在庫場所(location)・入荷チェック・完売・賞味期限などは対象に含めず、既存の値をそのまま維持する
         // （倉庫在庫(warehouseStock)も通常時は対象外で既存値を維持するが、完売・延期の場合のみ上の分岐で0に上書きする）
       }});
     }else{
@@ -1849,7 +1850,7 @@ async function commitBulk(){
         location:match?(match.location||""):"", // 在庫場所は前月からの引き継ぎのみ
         notes:r.notes,soldOut:false,arrivalChecked:match?!!match.arrivalChecked:false,createdAt:new Date().toISOString(),
         warehouseStock:match?carriedStock:"",warehouseAmount:r.warehouseAmount||"",floorStock:r.floorStock||"",floorAmount:r.floorAmount||"",
-        isFood:match?!!match.isFood:String(r.isFood||"").trim()==="1",expiryDate:match?(match.expiryDate||""):"",
+        isFood:String(r.isFood||"").trim()==="1",expiryDate:match?(match.expiryDate||""):"", // 食品判定は前月引き継ぎより今回のエクセル(A列)を優先する
         taiwanCatcher:false, // 台湾キャッチャー利用フラグは月替わりのたびに手動で再設定する仕様（引き継ぎ対象外）
         postponed:false // 延期・発売中止フラグも新規登録時は初期値false（引き継ぎ対象外）
       });
