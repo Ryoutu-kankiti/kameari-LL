@@ -1464,12 +1464,21 @@ function renderInventoryCardHtml(x){
   const locRequired=!bothZero; // 倉庫在庫・機械在庫が共に0でなければ在庫場所は必須
   const locked=!!(x.soldOut||x.postponed); // 完売・延期/発売中止の景品は在庫が常に0固定のため、棚卸での入力自体をロックする
   const lockedAttr=locked?"disabled":"";
+  // 倉庫在庫欄の表示方法
+  //  ・完売／延期・発売中止（locked）は「0固定」を最優先とし、保存されている値に関わらず背景の薄い「0」を表示する（入力なしの状態）
+  //  ・0（マシン内のみ）の場合だけ、入力された状態として「0」を実際の値で表示する
+  //  ・それ以外（1以上の数字）は直接入力された状態にはせず、入力欄は空のまま、背景の薄い数字（プレースホルダー）として参照した数字を表示する
+  const wsNum=wsBlank?0:(Number(ws)||0);
+  const wsConfirmedZero=!locked&&!wsBlank&&wsNum===0; // 完売等でなく、実際に0(マシン内のみ)が入力済み
+  const wsNeedsInput=!locked&&!wsConfirmedZero; // 完売等のロック中、または0入力済み以外は、毎回の棚卸で入力するまで赤枠にする
+  const wsValueAttr=wsConfirmedZero?"0":"";
+  const wsPlaceholder=locked?"0":String(wsNum);
   return `<article class="item" id="inv-item-${x.id}">
       <div class="item-top"><div>
         <div class="product-no">景品№ ${esc(x.productNo||"未登録")}</div>
         <div class="name" onclick="openDetail(${x.id})" style="cursor:pointer">${esc(x.name)}${x.isUnknown?' <span class="badge" style="background:#fee2e2;color:#dc2626">不明景品</span>':""}${locked?' <span class="badge" style="background:#fee2e2;color:#dc2626">'+(x.soldOut?"完売":"延期/発売中止")+'のため在庫0固定</span>':""}</div>
         <div class="meta" style="display:flex;align-items:center;gap:6px;margin-top:8px">在庫場所${locRequired?'<span style="color:#dc2626">＊</span>':""}：<input class="loc-edit ${locRequired&&locBlank?"field-missing":""}" onchange="updateLocation(${x.id},this.value)" onkeydown="handleEnterCommit(event)" value="${esc(x.location||"")}" placeholder="未登録"></div>
-        <div class="meta" style="display:flex;align-items:center;gap:6px;margin-top:8px">倉庫在庫<span style="color:#dc2626">＊</span>：<input class="stock-edit ${wsBlank?"field-missing":""}" type="number" step="1" min="0" ${lockedAttr} onchange="updateStockField(${x.id},'warehouseStock',this.value)" onkeydown="handleEnterCommit(event)" value="${esc(x.warehouseStock||"")}" placeholder="0"><button type="button" class="secondary stock-add-btn" ${lockedAttr} onclick="openStockAdd(${x.id},'warehouseStock','倉庫在庫')">＋</button></div>
+        <div class="meta" style="display:flex;align-items:center;gap:6px;margin-top:8px">倉庫在庫<span style="color:#dc2626">＊</span>：<input class="stock-edit ${wsNeedsInput?"field-missing":""}" type="number" step="1" min="0" ${lockedAttr} onchange="updateStockField(${x.id},'warehouseStock',this.value)" onkeydown="handleEnterCommit(event)" value="${wsValueAttr}" placeholder="${esc(wsPlaceholder)}"><button type="button" class="secondary stock-add-btn" ${lockedAttr} onclick="openStockAdd(${x.id},'warehouseStock','倉庫在庫')">＋</button></div>
         <div class="meta" style="display:flex;align-items:center;gap:6px;margin-top:8px">機械在庫<span style="color:#dc2626">＊</span>：<input class="stock-edit ${fsBlank?"field-missing":""}" type="number" step="1" min="0" ${lockedAttr} onchange="updateStockField(${x.id},'floorStock',this.value)" onkeydown="handleEnterCommit(event)" value="${esc(x.floorStock||"")}" placeholder="0"><button type="button" class="secondary stock-add-btn" ${lockedAttr} onclick="openStockAdd(${x.id},'floorStock','機械在庫')">＋</button></div>
       </div></div>
       ${savedAtBadgeHtml(x.id)}
@@ -1572,7 +1581,8 @@ function forceRefreshStockDisplays(id,ws,fs){
   const invCard=document.getElementById("inv-item-"+id);
   if(invCard){
     const inputs=invCard.querySelectorAll(".stock-edit"); // 0番目＝倉庫在庫、1番目＝機械在庫の順で並んでいる
-    if(inputs[0]&&document.activeElement!==inputs[0])inputs[0].value=ws;
+    // 倉庫在庫欄は完売等の0固定として、入力なしの状態＋背景の薄い数字で表示する（renderInventoryCardHtmlの表示方式に合わせる）
+    if(inputs[0]&&document.activeElement!==inputs[0]){inputs[0].value="";inputs[0].placeholder=String(ws)}
     if(inputs[1]&&document.activeElement!==inputs[1])inputs[1].value=fs;
   }
   const listCard=document.getElementById("item-"+id);
