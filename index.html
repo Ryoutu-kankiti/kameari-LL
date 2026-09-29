@@ -875,6 +875,7 @@ async function saveDetail(){
     postponed:isStaff()?document.getElementById("d_postponed").checked:!!target.postponed // 社員以外は元の値のまま変更しない
   };
   if(obj.soldOut||obj.postponed){obj.warehouseStock=0;obj.floorStock=0} // 完売・延期/発売中止の場合は倉庫在庫・機械在庫を強制的に0にする
+  obj.wsConfirmedOnInv=false; // 詳細画面からの編集は棚卸ページでの確定にはならないため、次回の棚卸では改めて赤枠で入力を促す
   if(!(obj.soldOut||obj.postponed))applyMachineOnlyLocation(target,obj); // 完売・延期/発売中止の場合は機械在庫も無いため対象外とし、それ以外で倉庫在庫が0になる場合のみ在庫場所を自動で「マシン内のみ」にする
   if(currentIdIsDemo){
     Object.assign(target,obj);
@@ -1067,6 +1068,7 @@ async function confirmArrival(){
   const noteLine="【入荷】"+dateStr+" 入数"+qty+"×"+cartons+"カートン＝"+total+"個｜受領者："+(receiver||"未記入");
   fields.notes=(x.notes?x.notes+"\n":"")+noteLine; // 備考欄に追記
   fields.warehouseStock=(Number(x.warehouseStock)||0)+total; // 現在の倉庫在庫（＝在庫数）に今回の入荷数を加算
+  fields.wsConfirmedOnInv=false; // 入荷処理は棚卸ページでの確定ではないため、次回の棚卸では改めて赤枠で入力を促す
   fields.arrivalChecked=true;
   if(demo){
     Object.assign(x,fields);
@@ -1098,14 +1100,14 @@ async function updateWarehouseStockFromList(id,val,demo){
   const num=Math.max(0,Math.floor(Number(val)||0));
   if(demo){
     const x=DEMO_ITEMS.find(i=>i.id===id);if(!x)return;
-    const fields={warehouseStock:num};
+    const fields={warehouseStock:num,wsConfirmedOnInv:false};
     applyMachineOnlyLocation(x,fields);
     Object.assign(x,fields);
     renderDemoPage();
     return;
   }
   const x=items().find(x=>x.id===id);if(!x)return;
-  const fields={warehouseStock:num};
+  const fields={warehouseStock:num,wsConfirmedOnInv:false}; // 一覧側の編集は棚卸ページでの確定にはならないため、次回の棚卸では改めて赤枠で入力を促す
   applyMachineOnlyLocation(x,fields);
   const updated=await updateItemFields(currentMonth,id,fields);
   if(!updated)return;
@@ -1160,9 +1162,9 @@ async function confirmSoldOutAction(){
     document.getElementById("d_warehouseStock").value="0"; // 詳細画面は在庫数欄を0にするだけ（実際の保存はsaveDetailで行う）
   }else if(pendingSoldOut.demo){
     const x=DEMO_ITEMS.find(i=>i.id===pendingSoldOut.id);
-    if(x){Object.assign(x,{soldOut:true,warehouseStock:0,floorStock:0});renderDemoPage();}
+    if(x){Object.assign(x,{soldOut:true,warehouseStock:0,floorStock:0,wsConfirmedOnInv:false});renderDemoPage();}
   }else{
-    const x=await updateItemFields(currentMonth,pendingSoldOut.id,{soldOut:true,warehouseStock:0,floorStock:0});
+    const x=await updateItemFields(currentMonth,pendingSoldOut.id,{soldOut:true,warehouseStock:0,floorStock:0,wsConfirmedOnInv:false});
     if(x)updateSingleItemCard(pendingSoldOut.id);
   }
   document.getElementById("soldOutOverlay").classList.remove("show");
@@ -1385,6 +1387,7 @@ function renderDemoPage(){
 async function updateStockField(id,field,val){
   const item=items().find(i=>i.id===id);if(!item)return;
   const fields={[field]:val};
+  if(field==="warehouseStock")fields.wsConfirmedOnInv=true; // 棚卸ページで倉庫在庫を直接入力したので、次回の棚卸まで赤枠を外す
   applyMachineOnlyLocation(item,fields);
   const x=await updateItemFields(currentMonth,id,fields);
   if(!x)return;
@@ -1421,6 +1424,7 @@ async function confirmStockAdd(){
   const field=pendingStockAdd.field;
   const newValue=(Number(x[field])||0)+add;
   const fields={[field]:newValue};
+  if(field==="warehouseStock")fields.wsConfirmedOnInv=true; // 棚卸ページの＋ボタンで倉庫在庫を確定したので、次回の棚卸まで赤枠を外す
   applyMachineOnlyLocation(x,fields);
   await updateItemFields(currentMonth,pendingStockAdd.id,fields);
   document.getElementById("stockAddOverlay").classList.remove("show");
@@ -1473,7 +1477,8 @@ function renderInventoryCardHtml(x){
   //  ・それ以外（1以上の数字）は直接入力された状態にはせず、入力欄は空のまま、背景の薄い数字（プレースホルダー）として参照した数字を表示する
   const wsNum=wsBlank?0:(Number(ws)||0);
   const wsConfirmedZero=!locked&&!wsBlank&&wsNum===0; // 完売等でなく、実際に0(マシン内のみ)が入力済み
-  const wsNeedsInput=!locked&&!wsConfirmedZero; // 完売等のロック中、または0入力済み以外は、毎回の棚卸で入力するまで赤枠にする
+  const wsConfirmedOnInv=!!x.wsConfirmedOnInv; // 倉庫在庫の最終編集が棚卸ページ自体（直接入力・＋ボタン）で行われたか
+  const wsNeedsInput=!locked&&!wsConfirmedZero&&!wsConfirmedOnInv; // 完売等のロック中、0入力済み、棚卸ページで確定済みのいずれでもない場合のみ、毎回の棚卸で入力するまで赤枠にする
   const wsValueAttr=wsConfirmedZero?"0":"";
   const wsPlaceholder=locked?"0":String(wsNum);
   return `<article class="item" id="inv-item-${x.id}">
@@ -1566,7 +1571,7 @@ async function confirmUnknownItem(){
     quantity:"",shikiri:"",shipping:"",orderQty:"",includedShikiri:"",purchasePrice:"",unitPrice:"",
     deliveryDate:"",confirmDate:"",location,notes:"",soldOut:false,
     arrivalChecked:false,createdAt:new Date().toISOString(),
-    warehouseStock,warehouseAmount:"",floorStock,floorAmount:"",
+    warehouseStock,wsConfirmedOnInv:true,warehouseAmount:"",floorStock,floorAmount:"",
     isFood:false,expiryDate:"",taiwanCatcher:false,
     isUnknown:true // 棚卸で見つかった景品ナンバー不明の現物であることを示すフラグ（エクセル出力時に末尾へ分けて出力するために使用）
   };
@@ -1600,7 +1605,7 @@ async function fixSoldOutStockMismatch(){
   if(!targets.length){alert("完売チェックと在庫の不整合は見つかりませんでした。");return}
   const names=targets.slice(0,10).map(x=>"・"+x.name).join("\n")+(targets.length>10?"\n…他"+(targets.length-10)+"件":"");
   if(!confirm(targets.length+"件、完売チェックが入っているのに倉庫在庫・機械在庫が0になっていない景品があります。\n\n"+names+"\n\nこれらの倉庫在庫・機械在庫をすべて0に修正します。よろしいですか？"))return;
-  const updates=targets.map(x=>({id:x.id,fields:{warehouseStock:0,floorStock:0}}));
+  const updates=targets.map(x=>({id:x.id,fields:{warehouseStock:0,floorStock:0,wsConfirmedOnInv:false}}));
   const ok=await updateItemsFieldsBulk(currentMonth,updates);
   if(!ok)return; // 失敗時はupdateItemsFieldsBulk内で既にエラー通知・画面の再描画まで行われている
   // 他の項目を編集中だとrender()/renderInventory()が更新を見送ってしまい、修正した項目の表示だけ古い数字が
@@ -1848,7 +1853,7 @@ async function commitBulk(){
         notes:r.notes,deliveryDate:r.deliveryDate,confirmDate:r.confirmDate||"",
         warehouseAmount:r.warehouseAmount||"",floorAmount:r.floorAmount||"",
         isFood:String(r.isFood||"").trim()==="1", // 食品判定は常に今回のエクセル(A列)の内容を優先し、既存の値があっても上書きする
-        ...(soldOrPostponed?{warehouseStock:0,floorStock:0}:{floorStock:r.floorStock||""})
+        ...(soldOrPostponed?{warehouseStock:0,floorStock:0,wsConfirmedOnInv:false}:{floorStock:r.floorStock||""})
         // 在庫場所(location)・入荷チェック・完売・賞味期限などは対象に含めず、既存の値をそのまま維持する
         // （倉庫在庫(warehouseStock)も通常時は対象外で既存値を維持するが、完売・延期の場合のみ上の分岐で0に上書きする）
       }});
@@ -1863,7 +1868,7 @@ async function commitBulk(){
         unitPrice:r.unitPrice,deliveryDate:r.deliveryDate,confirmDate:r.confirmDate||"",
         location:match?(match.location||""):"", // 在庫場所は前月からの引き継ぎのみ
         notes:r.notes,soldOut:false,arrivalChecked:match?!!match.arrivalChecked:false,createdAt:new Date().toISOString(),
-        warehouseStock:match?carriedStock:"",warehouseAmount:r.warehouseAmount||"",floorStock:r.floorStock||"",floorAmount:r.floorAmount||"",
+        warehouseStock:match?carriedStock:"",wsConfirmedOnInv:false,warehouseAmount:r.warehouseAmount||"",floorStock:r.floorStock||"",floorAmount:r.floorAmount||"",
         isFood:String(r.isFood||"").trim()==="1",expiryDate:match?(match.expiryDate||""):"", // 食品判定は前月引き継ぎより今回のエクセル(A列)を優先する
         taiwanCatcher:false, // 台湾キャッチャー利用フラグは月替わりのたびに手動で再設定する仕様（引き継ぎ対象外）
         postponed:false // 延期・発売中止フラグも新規登録時は初期値false（引き継ぎ対象外）
