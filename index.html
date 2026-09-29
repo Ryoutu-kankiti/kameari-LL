@@ -1384,13 +1384,16 @@ function renderDemoPage(){
 // 棚卸ページの倉庫在庫・機械在庫のインライン編集欄が変更されたときの保存処理
 // warehouseStockが在庫数を兼ねるフィールドのため、単純にその項目を更新するだけでよい。
 // あわせて、更新後に倉庫在庫が0になれば、機械在庫の有無に関わらず在庫場所を自動で「マシン内のみ」にする
-async function updateStockField(id,field,val){
+async function updateStockField(id,field,val,el){
   const item=items().find(i=>i.id===id);if(!item)return;
   const fields={[field]:val};
-  if(field==="warehouseStock")fields.wsConfirmedOnInv=true; // 棚卸ページで倉庫在庫を直接入力したので、次回の棚卸まで赤枠を外す
+  if(field==="warehouseStock"){
+    fields.wsConfirmedOnInv=true; // 棚卸ページで倉庫在庫を直接入力したので、次回の棚卸まで赤枠を外す
+    if(el)el.classList.remove("field-missing"); // 保存の通信を待たず、入力確定（Enter／枠外し）と同時に即座に赤枠を外す
+  }
   applyMachineOnlyLocation(item,fields);
   const x=await updateItemFields(currentMonth,id,fields);
-  if(!x)return;
+  if(!x)return; // 保存失敗時はupdateItemFields内でrender()/renderInventory()が呼ばれ、赤枠含めて正しい状態に戻る
   updateSingleInventoryCard(id);
 }
 let pendingStockAdd=null; // 「＋」ボタンで在庫追加中の対象（id・対象フィールド）
@@ -1486,7 +1489,7 @@ function renderInventoryCardHtml(x){
         <div class="product-no">景品№ ${esc(x.productNo||"未登録")}</div>
         <div class="name" onclick="openDetail(${x.id})" style="cursor:pointer">${esc(x.name)}${x.isUnknown?' <span class="badge" style="background:#fee2e2;color:#dc2626">不明景品</span>':""}${locked?' <span class="badge" style="background:#fee2e2;color:#dc2626">'+(x.soldOut?"完売":"延期/発売中止")+'のため在庫0固定</span>':""}</div>
         <div class="meta" style="display:flex;align-items:center;gap:6px;margin-top:8px">在庫場所${locRequired?'<span style="color:#dc2626">＊</span>':""}：<input class="loc-edit ${locRequired&&locBlank?"field-missing":""}" onchange="updateLocation(${x.id},this.value)" onkeydown="handleEnterCommit(event)" value="${esc(x.location||"")}" placeholder="未登録"></div>
-        <div class="meta" style="display:flex;align-items:center;gap:6px;margin-top:8px">倉庫在庫<span style="color:#dc2626">＊</span>：<input class="stock-edit ${wsNeedsInput?"field-missing":""}" type="number" step="1" min="0" ${lockedAttr} onchange="updateStockField(${x.id},'warehouseStock',this.value)" onkeydown="handleEnterCommit(event)" value="${wsValueAttr}" placeholder="${esc(wsPlaceholder)}"><button type="button" class="secondary stock-add-btn" ${lockedAttr} onclick="openStockAdd(${x.id},'warehouseStock','倉庫在庫')">＋</button></div>
+        <div class="meta" style="display:flex;align-items:center;gap:6px;margin-top:8px">倉庫在庫<span style="color:#dc2626">＊</span>：<input class="stock-edit ${wsNeedsInput?"field-missing":""}" type="number" step="1" min="0" ${lockedAttr} onchange="updateStockField(${x.id},'warehouseStock',this.value,this)" onkeydown="handleEnterCommit(event)" value="${wsValueAttr}" placeholder="${esc(wsPlaceholder)}"><button type="button" class="secondary stock-add-btn" ${lockedAttr} onclick="openStockAdd(${x.id},'warehouseStock','倉庫在庫')">＋</button></div>
         <div class="meta" style="display:flex;align-items:center;gap:6px;margin-top:8px">機械在庫<span style="color:#dc2626">＊</span>：<input class="stock-edit ${fsBlank?"field-missing":""}" type="number" step="1" min="0" ${lockedAttr} onchange="updateStockField(${x.id},'floorStock',this.value)" onkeydown="handleEnterCommit(event)" value="${esc(x.floorStock||"")}" placeholder="0"><button type="button" class="secondary stock-add-btn" ${lockedAttr} onclick="openStockAdd(${x.id},'floorStock','機械在庫')">＋</button></div>
       </div></div>
       ${savedAtBadgeHtml(x.id)}
