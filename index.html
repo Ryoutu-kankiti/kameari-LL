@@ -1333,12 +1333,15 @@ function render(){
 function updateSingleItemCard(id){
   document.getElementById("soldOutCount").textContent=items().filter(x=>x.soldOut).length;
   document.getElementById("checkedCount").textContent=items().filter(x=>x.arrivalChecked).length;
-  if(isEditingWithin("itemList"))return;
   const container=document.getElementById("itemList");
   if(!container)return;
+  const existingEl=document.getElementById("item-"+id);
+  // このカード自身が編集中（フォーカスがこのカードの中にある）ときだけ更新を見送る。
+  // 一覧全体で判定すると、他の景品を編集中というだけでこのカードの表示（保存成功表示・入力必須の赤枠など）が
+  // 更新されないままになってしまうため、カード単位で判定する
+  if(existingEl&&existingEl.contains(document.activeElement))return;
   const list=visibleSortedItems();
   const idx=list.findIndex(x=>x.id===id);
-  const existingEl=document.getElementById("item-"+id);
   if(idx===-1){
     // 絞り込み条件に合わなくなった（または削除された）ため取り除く
     if(existingEl)existingEl.remove();
@@ -1498,10 +1501,11 @@ function renderInventory(){
 function updateSingleInventoryCard(id){
   const wrap=document.getElementById("inventoryList");
   if(!wrap)return;
-  if(isEditingWithin("inventoryList"))return;
+  const existingEl=document.getElementById("inv-item-"+id);
+  // このカード自身が編集中（フォーカスがこのカードの中にある）ときだけ更新を見送る（updateSingleItemCardと同じ理由）
+  if(existingEl&&existingEl.contains(document.activeElement))return;
   const list=visibleSortedInventoryItems();
   const idx=list.findIndex(x=>x.id===id);
-  const existingEl=document.getElementById("inv-item-"+id);
   if(idx===-1){
     if(existingEl)existingEl.remove();
     if(list.length===0&&!wrap.querySelector(".card.empty")){
