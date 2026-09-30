@@ -732,7 +732,7 @@ async function removeItem(monthKeyStr,itemId){
   if(data[monthKeyStr])data[monthKeyStr]=data[monthKeyStr].filter(i=>i.id!==itemId);
   return true;
 }
-// 複数の景品をまとめて部分更新する（一括登録で、景品ナンバーが変わった既存項目をその場で更新する場合などに使用）。成功時true、失敗時false
+// 複数の景品をまとめて部分更新する（一括登録で、景品ナンバーが変わった既存項目をその場で更新する場合や、完売の在庫不整合一括修正などに使用）。成功時true、失敗時false
 async function updateItemsFieldsBatch(monthKeyStr,updates){
   if(!updates.length)return true;
   try{
@@ -751,6 +751,7 @@ async function updateItemsFieldsBatch(monthKeyStr,updates){
   updates.forEach(({id,fields})=>{const x=map.get(id);if(x)Object.assign(x,fields)});
   return true;
 }
+const updateItemsFieldsBulk=updateItemsFieldsBatch; // 呼び出し側の関数名ゆれ（Bulk/Batch）を吸収するための別名
 // 複数のIDを指定して景品をまとめて削除する（一括登録で、エクセルに存在しなくなった項目や、重複統合で不要になった項目の削除に使用）。成功時true、失敗時false
 async function removeItemsByIds(monthKeyStr,ids){
   if(!ids.length)return true;
@@ -965,7 +966,7 @@ document.addEventListener("keydown",(e)=>{
   if(!t||(t.tagName!=="INPUT"&&t.tagName!=="SELECT"))return;
   e.preventDefault();
   const focusable=Array.from(document.querySelectorAll("input,select,textarea,button"))
-    .filter(el=>!el.disabled&&el.offsetParent!==null); // offsetParentがnull＝非表示中の画面/ポップアップの要素は除外
+    .filter(el=>!el.disabled&&el.offsetParent!==null&&el.tabIndex!==-1); // offsetParentがnull＝非表示中の画面/ポップアップの要素は除外。tabIndex===-1（棚卸の＋ボタンなど）はEnterでの移動先から除外し、マウス/タップでのみ操作できるようにする
   const idx=focusable.indexOf(t);
   if(idx>-1&&idx<focusable.length-1){
     const next=focusable[idx+1];
@@ -999,6 +1000,7 @@ function renderBulkMonthOptions(){
   for(let i=-2;i<=9;i++){const d=new Date(base.getFullYear(),base.getMonth()+i,1);arr.push(monthKey(d))}
   sel.innerHTML=arr.map(k=>`<option value="${k}" ${k===currentMonth?"selected":""}>${monthLabel(k)}</option>`).join("");
 }
+
 // 画面のどこかをクリックしたら開いているメニューを閉じる（メニュー外クリックでの自動クローズ）
 document.addEventListener("click",()=>{
   const m=document.getElementById("viewMenu");if(m)m.classList.remove("show");
@@ -1251,13 +1253,15 @@ function renderItemCardHtml(x,demo){
   const s=status(x.warehouseStock,x.floorStock,x.arrivalChecked);
   const idLit=demo?`'${x.id}'`:x.id; // 実データのid(数値)はそのまま、デモのid(文字列)はクォート付きで埋め込む
   const dm=demo?",true":""; // demoモード時、各ハンドラの最後の引数として渡す
+  const locked=!!(x.soldOut||x.postponed); // 完売・延期/発売中止の景品は、入荷処理・在庫数の変動を一覧からは行えないようにする
+  const lockedAttr=locked?"disabled":"";
   const arrivalOnchange=`onchange="toggleArrival(${idLit},this.checked,this${dm})"`;
   const nameOnclick=`onclick="openDetail(${idLit}${dm})"`;
   if(listViewMode==="compact"){
     // 簡易表示：入荷チェック・景品ナンバー・発注先・景品名（折り返さず見切れ表示）だけを横一列に並べ、1画面により多くの項目を表示する
     return `<article class="item item-compact ${x.arrivalChecked?"arrival-checked":""} ${x.postponed?"postponed":""} ${x.soldOut?"sold-out":""}" id="item-${x.id}">
       <div class="compact-row">
-        <input class="arrival-check" type="checkbox" ${x.arrivalChecked?"checked":""} ${arrivalOnchange} onclick="event.stopPropagation()">
+        <input class="arrival-check" type="checkbox" ${x.arrivalChecked?"checked":""} ${lockedAttr} ${arrivalOnchange} onclick="event.stopPropagation()">
         <span class="product-no compact-no">${esc(x.productNo||"未登録")}</span>
         <span class="compact-supplier">${esc(x.supplier||"未登録")}</span>
         <span class="name compact-name" ${nameOnclick}>${esc(x.name)}</span>
@@ -1270,7 +1274,7 @@ function renderItemCardHtml(x,demo){
   return `<article class="item ${x.arrivalChecked?"arrival-checked":""} ${x.postponed?"postponed":""} ${x.soldOut?"sold-out":""}" id="item-${x.id}">
       <div class="item-top"><div>
         <div class="product-no">景品№ ${esc(x.productNo||"未登録")}</div>
-        <div class="name-row"><input class="arrival-check" type="checkbox" ${x.arrivalChecked?"checked":""} ${arrivalOnchange} onclick="event.stopPropagation()"><div class="name" ${nameOnclick}>${esc(x.name)}</div></div>
+        <div class="name-row"><input class="arrival-check" type="checkbox" ${x.arrivalChecked?"checked":""} ${lockedAttr} ${arrivalOnchange} onclick="event.stopPropagation()"><div class="name" ${nameOnclick}>${esc(x.name)}${locked?' <span class="badge" style="background:#fee2e2;color:#dc2626">'+(x.soldOut?"完売":"延期/発売中止")+'のため入荷・在庫操作不可</span>':""}</div></div>
         <div class="meta">発注先：${esc(x.supplier||"未登録")}</div>
         <div class="meta">込単価：${x.unitPrice!==""&&x.unitPrice!=null?"¥"+esc(x.unitPrice):"未登録"}｜納品予定日：${esc(x.deliveryDate||"未登録")}</div>
         <div class="meta" style="display:flex;align-items:center;gap:6px">在庫場所：<input class="loc-edit" onclick="event.stopPropagation()" ${locOnchange} value="${esc(x.location||"")}" placeholder="未登録"></div>
@@ -1279,7 +1283,7 @@ function renderItemCardHtml(x,demo){
         ${x.soldOut?'<span class="badge" style="background:#fff;color:#7f1d1d">完売</span>':`<span class="badge ${s.k}">${s.l}</span>`}
       </div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
         ${!demo&&isStaff()?`<div class="kebab-wrap" onclick="event.stopPropagation()"><button type="button" class="kebab-btn" onclick="toggleKebabMenu(event,${idLit})" aria-label="メニュー">⋮</button><div class="kebab-menu" id="kebab-${idLit}"><button type="button" onclick="deleteItemFromList(${idLit})">🗑 データごと削除</button></div></div>`:""}
-        <div class="stock-wrap" onclick="event.stopPropagation()"><div class="stock-label">倉庫在庫</div><input class="stock-num" type="number" min="0" step="1" inputmode="numeric" value="${Number(x.warehouseStock||0)}" ${stockOnchange}></div>
+        <div class="stock-wrap" onclick="event.stopPropagation()"><div class="stock-label">倉庫在庫</div><input class="stock-num" type="number" min="0" step="1" inputmode="numeric" ${lockedAttr} value="${Number(x.warehouseStock||0)}" ${stockOnchange}></div>
       </div></div>
       ${demo?"":savedAtBadgeHtml(x.id)}
     </article>`;
@@ -1390,6 +1394,10 @@ async function updateStockField(id,field,val,el){
   if(field==="warehouseStock"){
     fields.wsConfirmedOnInv=true; // 棚卸ページで倉庫在庫を直接入力したので、次回の棚卸まで赤枠を外す
     if(el)el.classList.remove("field-missing"); // 保存の通信を待たず、入力確定（Enter／枠外し）と同時に即座に赤枠を外す
+  }else if(field==="floorStock"&&el){
+    // 機械在庫は「値が入っているかどうか」だけで赤枠が決まるため、保存の通信を待たず入力確定と同時に即座に判定・反映する
+    // （同じカード内の他の欄を続けて編集中だと、後続のカード再描画が見送られ赤枠が残ってしまうことがあるため）
+    el.classList.toggle("field-missing",String(val).trim()==="");
   }
   applyMachineOnlyLocation(item,fields);
   const x=await updateItemFields(currentMonth,id,fields);
@@ -1489,8 +1497,8 @@ function renderInventoryCardHtml(x){
         <div class="product-no">景品№ ${esc(x.productNo||"未登録")}</div>
         <div class="name" onclick="openDetail(${x.id})" style="cursor:pointer">${esc(x.name)}${x.isUnknown?' <span class="badge" style="background:#fee2e2;color:#dc2626">不明景品</span>':""}${locked?' <span class="badge" style="background:#fee2e2;color:#dc2626">'+(x.soldOut?"完売":"延期/発売中止")+'のため在庫0固定</span>':""}</div>
         <div class="meta" style="display:flex;align-items:center;gap:6px;margin-top:8px">在庫場所${locRequired?'<span style="color:#dc2626">＊</span>':""}：<input class="loc-edit ${locRequired&&locBlank?"field-missing":""}" onchange="updateLocation(${x.id},this.value)" onkeydown="handleEnterCommit(event)" value="${esc(x.location||"")}" placeholder="未登録"></div>
-        <div class="meta" style="display:flex;align-items:center;gap:6px;margin-top:8px">倉庫在庫<span style="color:#dc2626">＊</span>：<input class="stock-edit ${wsNeedsInput?"field-missing":""}" type="number" step="1" min="0" ${lockedAttr} onchange="updateStockField(${x.id},'warehouseStock',this.value,this)" onkeydown="handleEnterCommit(event)" value="${wsValueAttr}" placeholder="${esc(wsPlaceholder)}"><button type="button" class="secondary stock-add-btn" ${lockedAttr} onclick="openStockAdd(${x.id},'warehouseStock','倉庫在庫')">＋</button></div>
-        <div class="meta" style="display:flex;align-items:center;gap:6px;margin-top:8px">機械在庫<span style="color:#dc2626">＊</span>：<input class="stock-edit ${fsBlank?"field-missing":""}" type="number" step="1" min="0" ${lockedAttr} onchange="updateStockField(${x.id},'floorStock',this.value)" onkeydown="handleEnterCommit(event)" value="${esc(x.floorStock||"")}" placeholder="0"><button type="button" class="secondary stock-add-btn" ${lockedAttr} onclick="openStockAdd(${x.id},'floorStock','機械在庫')">＋</button></div>
+        <div class="meta" style="display:flex;align-items:center;gap:6px;margin-top:8px">倉庫在庫<span style="color:#dc2626">＊</span>：<input class="stock-edit ${wsNeedsInput?"field-missing":""}" type="number" step="1" min="0" ${lockedAttr} onchange="updateStockField(${x.id},'warehouseStock',this.value,this)" onkeydown="handleEnterCommit(event)" value="${wsValueAttr}" placeholder="${esc(wsPlaceholder)}"><button type="button" class="secondary stock-add-btn" tabindex="-1" ${lockedAttr} onclick="openStockAdd(${x.id},'warehouseStock','倉庫在庫')">＋</button></div>
+        <div class="meta" style="display:flex;align-items:center;gap:6px;margin-top:8px">機械在庫<span style="color:#dc2626">＊</span>：<input class="stock-edit ${fsBlank?"field-missing":""}" type="number" step="1" min="0" ${lockedAttr} onchange="updateStockField(${x.id},'floorStock',this.value,this)" onkeydown="handleEnterCommit(event)" value="${esc(x.floorStock||"")}" placeholder="0"><button type="button" class="secondary stock-add-btn" tabindex="-1" ${lockedAttr} onclick="openStockAdd(${x.id},'floorStock','機械在庫')">＋</button></div>
       </div></div>
       ${savedAtBadgeHtml(x.id)}
     </article>`;
