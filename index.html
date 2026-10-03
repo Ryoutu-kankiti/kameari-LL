@@ -1011,9 +1011,30 @@ document.addEventListener("click",()=>{
 /* ===== 入荷処理ポップアップ（一覧の入荷チェックをONにすると開く） ===== */
 let pendingArrival=null; // 入荷処理中の対象id
 // 一覧の入荷チェックボックスが変化したときの処理。ONにするとポップアップを開き、OFFにすると即座に解除する（demo=trueの場合はDEMO_ITEMSのみ操作しFirestoreには触れない）
+// 入荷処理の直前に、画面の表示ではなくサーバー上の「今まさに保存されている最新状態」を直接取得し、
+// 既に他の端末で入荷済みになっていないかを確認する。二重入荷を検知した場合はtrueを返し、画面の表示もサーバーの内容に合わせて更新する。
+// 通信エラーなどで確認自体ができなかった場合は、操作を止めないようfalseを返して従来通り処理を継続する。
+async function checkArrivalAlreadyDone(monthKeyStr,id,localItem){
+  let snap;
+  try{
+    snap=await itemsRef(monthKeyStr).doc(String(id)).get({source:"server"});
+  }catch(err){
+    console.warn("入荷済みかどうかのサーバー確認に失敗しました（通信エラーのため、確認なしで続行します）：",err);
+    return false;
+  }
+  if(!snap.exists)return false; // 削除済みなどは他の処理で検知されるため、ここでは対象外
+  const serverData=snap.data();
+  if(!serverData.arrivalChecked)return false;
+  // サーバー上では既に入荷済み：ローカルの表示をサーバーの内容に合わせて更新し、二重処理を止める
+  if(localItem)Object.assign(localItem,serverData);
+  if(currentMonth===monthKeyStr){updateSingleItemCard(id);updateSingleInventoryCard(id);}
+  alert("「"+(serverData.name||(localItem&&localItem.name)||"")+"」は、たった今別の端末で入荷処理が完了していました。\n二重処理を防ぐため、処理を中止して画面を最新の状態に更新しました。");
+  return true;
+}
 async function toggleArrival(id,checked,cb,demo){
   const x=demo?DEMO_ITEMS.find(i=>i.id===id):items().find(x=>x.id===id);if(!x)return;
   if(checked){
+    if(!demo&&await checkArrivalAlreadyDone(currentMonth,id,x)){if(cb)cb.checked=false;return}
     pendingArrival={id,cb,demo:!!demo};
     document.getElementById("arrivalItemName").textContent=x.name+(demo?"（デモ）":"");
     document.getElementById("av_cartons").value="";
@@ -1027,6 +1048,11 @@ async function toggleArrival(id,checked,cb,demo){
     document.body.style.overflow="hidden";
     setTimeout(()=>document.getElementById("av_cartons").focus(),50);
   }else{
+    // 入荷済みチェックを外すのは通常の操作ではないため、誤って外してしまうことを防ぐために確認を挟む
+    if(!confirm("「"+x.name+"」の入荷チェックを外しますか？\n通常は外す必要はありません。")){
+      if(cb)cb.checked=true; // キャンセル時はチェックを入った状態に戻す
+      return;
+    }
     if(demo){
       Object.assign(x,{arrivalChecked:false,confirmDate:""});
       renderDemoPage();
@@ -1075,6 +1101,14 @@ async function confirmArrival(){
   if(demo){
     Object.assign(x,fields);
   }else{
+    // ポップアップを開いている間に別の端末で入荷処理が完了している可能性があるため、保存の直前にもう一度だけ確認する
+    if(await checkArrivalAlreadyDone(currentMonth,x.id,x)){
+      if(pendingArrival&&pendingArrival.cb)pendingArrival.cb.checked=false;
+      document.getElementById("arrivalOverlay").classList.remove("show");
+      document.body.style.overflow="";
+      pendingArrival=null;
+      return;
+    }
     await updateItemFields(currentMonth,x.id,fields);
   }
   document.getElementById("arrivalOverlay").classList.remove("show");
