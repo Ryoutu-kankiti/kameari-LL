@@ -52,7 +52,7 @@ input[type="checkbox"]{-webkit-appearance:auto;-moz-appearance:auto;appearance:a
 .item-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.name-row{display:flex;align-items:center;gap:9px}
 .arrival-check{width:22px;height:22px;min-height:22px;margin:0;cursor:pointer;accent-color:#1f6feb;flex:0 0 auto}
 .name{font-size:17px;font-weight:800;color:#1f6feb;cursor:pointer;text-decoration:underline;text-underline-offset:3px}.meta{color:#667085;font-size:13px;margin-top:4px}.stock{font-size:22px;font-weight:800}
-.stock-wrap{text-align:right;flex:0 0 auto}.stock-label{font-size:11px;color:#667085;font-weight:700;margin-bottom:2px}
+.stock-time{font-size:10px;color:#98a2b3;margin-top:2px;white-space:nowrap}.stock-wrap{text-align:right;flex:0 0 auto}.stock-label{font-size:11px;color:#667085;font-weight:700;margin-bottom:2px}
 .stock-num{width:74px;min-height:38px;font-size:22px;font-weight:800;text-align:right;padding:2px 8px;border:1px solid transparent;border-radius:8px;background:transparent}
 .stock-num:focus{border-color:#1f6feb;background:#fff}
 .product-no{color:#1f6feb;font-size:12px;font-weight:800;letter-spacing:.3px;background:#eef3fb;display:inline-block;padding:2px 8px;border-radius:6px;margin-bottom:5px}
@@ -683,7 +683,15 @@ async function updateItemField(monthKeyStr,itemId,field,value){
   return x||null;
 }
 // 指定した景品の、複数項目をまとめて更新する（詳細画面の保存・入荷確定・完売処理など）。見つからない・保存失敗の場合はnullを返す
+// 倉庫在庫の値が実際に変わる場合だけ、最終編集日時(wsUpdatedAt)をfieldsに追加する（同じ値の上書きでは更新しない）
+function stampWarehouseStockTime(monthKeyStr,itemId,fields){
+  if(!("warehouseStock" in fields))return;
+  const x=(data[monthKeyStr]||[]).find(i=>i.id===itemId);
+  if(x&&(Number(x.warehouseStock)||0)===(Number(fields.warehouseStock)||0)&&String(x.warehouseStock??"").trim()!=="")return;
+  fields.wsUpdatedAt=Date.now();
+}
 async function updateItemFields(monthKeyStr,itemId,fields){
+  stampWarehouseStockTime(monthKeyStr,itemId,fields);
   try{
     await itemsRef(monthKeyStr).doc(String(itemId)).update(fields);
   }catch(err){
@@ -735,6 +743,7 @@ async function removeItem(monthKeyStr,itemId){
 // 複数の景品をまとめて部分更新する（一括登録で、景品ナンバーが変わった既存項目をその場で更新する場合や、完売の在庫不整合一括修正などに使用）。成功時true、失敗時false
 async function updateItemsFieldsBatch(monthKeyStr,updates){
   if(!updates.length)return true;
+  updates.forEach(({id,fields})=>stampWarehouseStockTime(monthKeyStr,id,fields));
   try{
     for(let i=0;i<updates.length;i+=400){
       const chunk=updates.slice(i,i+400);
@@ -1283,6 +1292,12 @@ function updateListViewModeButton(){
   const btn=document.getElementById("listViewModeBtn");
   if(btn)btn.textContent=listViewMode==="compact"?"詳細表示に切替":"簡易表示に切替";
 }
+// 倉庫在庫の最終編集日時を「10/5 16:15」形式で返す（記録がない古いデータは「－」）
+function formatWsUpdatedAt(t){
+  if(!t)return "最終編集 －";
+  const d=new Date(t),z=n=>String(n).padStart(2,"0");
+  return "最終編集 "+(d.getMonth()+1)+"/"+d.getDate()+" "+z(d.getHours())+":"+z(d.getMinutes());
+}
 function renderItemCardHtml(x,demo){
   const s=status(x.warehouseStock,x.floorStock,x.arrivalChecked);
   const idLit=demo?`'${x.id}'`:x.id; // 実データのid(数値)はそのまま、デモのid(文字列)はクォート付きで埋め込む
@@ -1317,7 +1332,7 @@ function renderItemCardHtml(x,demo){
         ${x.soldOut?'<span class="badge" style="background:#fff;color:#7f1d1d">完売</span>':`<span class="badge ${s.k}">${s.l}</span>`}
       </div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
         ${!demo&&isStaff()?`<div class="kebab-wrap" onclick="event.stopPropagation()"><button type="button" class="kebab-btn" onclick="toggleKebabMenu(event,${idLit})" aria-label="メニュー">⋮</button><div class="kebab-menu" id="kebab-${idLit}"><button type="button" onclick="deleteItemFromList(${idLit})">🗑 データごと削除</button></div></div>`:""}
-        <div class="stock-wrap" onclick="event.stopPropagation()"><div class="stock-label">倉庫在庫</div><input class="stock-num" type="number" min="0" step="1" inputmode="numeric" ${lockedAttr} value="${Number(x.warehouseStock||0)}" ${stockOnchange}></div>
+        <div class="stock-wrap" onclick="event.stopPropagation()"><div class="stock-label">倉庫在庫</div><input class="stock-num" type="number" min="0" step="1" inputmode="numeric" ${lockedAttr} value="${Number(x.warehouseStock||0)}" ${stockOnchange}><div class="stock-time">${formatWsUpdatedAt(x.wsUpdatedAt)}</div></div>
       </div></div>
       ${demo?"":savedAtBadgeHtml(x.id)}
     </article>`;
