@@ -1887,6 +1887,15 @@ function findSameMonthMatches(r,targetMonth,excludeIds){
 // ・一致が2件以上：倉庫在庫が最も多いものを残して更新し、他は削除して1件に統合
 // ・一致が0件：完全新規登録（前月からの引き継ぎのみ試みる）
 // さらに、今回のエクセルのどの行にも一致しなかった既存項目は、エクセルに存在しなくなったものとして削除する
+// エクセルの備考欄に、既存の備考欄にあるアプリ記録の「【入荷】…」行を（重複しないように）付け足して返す。
+// 一括登録でエクセルの備考欄に上書きしても、アプリで記録した入荷日・受領者が消えないようにするための処理
+function mergeArrivalNotes(excelNotes,existingNotes){
+  const base=String(excelNotes||"");
+  const lines=String(existingNotes||"").split("\n").map(l=>l.trim()).filter(l=>l.startsWith("【入荷】"));
+  const missing=lines.filter(l=>!base.includes(l));
+  if(!missing.length)return base;
+  return (base?base+"\n":"")+missing.join("\n");
+}
 async function commitBulk(){
   if(!bulkRows.length)return;
   const targetMonth=document.getElementById("bulkTargetMonth").value||currentMonth;
@@ -1916,7 +1925,7 @@ async function commitBulk(){
         productNo:r.productNo,orderDate:r.orderDate,supplier:r.supplier,releaseDate:r.releaseDate, // 景品ナンバーを含め、今回のエクセルの内容で上書きする
         name:r.name,quantity:r.quantity,shikiri:r.shikiri,shipping:r.shipping,orderQty:r.orderQty,
         includedShikiri:r.includedShikiri,purchasePrice:r.purchasePrice,unitPrice:r.unitPrice,
-        notes:r.notes,deliveryDate:r.deliveryDate,confirmDate:r.confirmDate||"",
+        notes:mergeArrivalNotes(r.notes,keep.notes),deliveryDate:r.deliveryDate,confirmDate:r.confirmDate||keep.confirmDate||"", // 備考欄はエクセルの内容を基本としつつ、アプリで記録した【入荷】行は残す。納品確認日もエクセルが空欄ならアプリ側の値を残す
         warehouseAmount:r.warehouseAmount||"",floorAmount:r.floorAmount||"",
         isFood:String(r.isFood||"").trim()==="1", // 食品判定は常に今回のエクセル(A列)の内容を優先し、既存の値があっても上書きする
         ...(soldOrPostponed?{warehouseStock:0,floorStock:0,wsConfirmedOnInv:false}:{floorStock:r.floorStock||""})
