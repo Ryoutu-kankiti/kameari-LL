@@ -329,7 +329,7 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 <div id="arrivalItemName" style="font-weight:800;margin-bottom:14px"></div>
 <div class="detail-grid">
 <label class="full">カートン数<input id="av_cartons" type="number" min="0" step="0.5" inputmode="decimal"></label>
-<label class="full">受領者名<input id="av_receiver" type="text"></label>
+<label class="full">受領者名<span style="color:#dc2626">＊</span><input id="av_receiver" type="text" placeholder="必須"></label>
 <label class="full" id="av_expiryWrap" style="display:none">賞味期限<input id="av_expiryDate" type="text" placeholder="例：2026/9/30"></label>
 <label class="full" id="av_taiwanWrap" style="display:none;flex-direction:row;align-items:center;gap:8px"><input id="av_taiwanCatcher" type="checkbox" style="width:22px;min-height:22px;flex:0 0 auto">台湾キャッチャーで利用</label>
 </div>
@@ -1097,12 +1097,18 @@ async function confirmArrival(){
     fields.taiwanCatcher=document.getElementById("av_taiwanCatcher").checked;
   }
   const receiver=document.getElementById("av_receiver").value.trim();
+  if(!receiver){alert("受領者名を入力してください。");document.getElementById("av_receiver").focus();return}
+  // 発注数（予定のカートン数）を超えて入荷しようとしている場合は、確認のうえ、OKなら続行できる
+  const planned=Number(x.orderQty);
+  if(x.orderQty!==""&&x.orderQty!=null&&!isNaN(planned)&&cartons>planned){
+    if(!confirm("入荷カートン数（"+cartons+"）が、発注数（予定：" +planned+"カートン）より多くなっています。\nこのまま入荷しますか？"))return;
+  }
   const qty=Number(x.quantity)||0, total=qty*cartons; // 入数×カートン数＝今回の入荷数
   const d=new Date();
   fields.confirmDate=toDateTimeLocal(d); // 納品確認日を今の日時で自動入力
   const z=n=>String(n).padStart(2,"0");
   const dateStr=d.getFullYear()+"/"+z(d.getMonth()+1)+"/"+z(d.getDate())+" "+z(d.getHours())+":"+z(d.getMinutes());
-  const noteLine="【入荷】"+dateStr+" 入数"+qty+"×"+cartons+"カートン＝"+total+"個｜受領者："+(receiver||"未記入");
+  const noteLine="【入荷】"+dateStr+" 入数"+qty+"×"+cartons+"カートン＝"+total+"個｜受領者："+receiver;
   fields.notes=(x.notes?x.notes+"\n":"")+noteLine; // 備考欄に追記
   fields.warehouseStock=(Number(x.warehouseStock)||0)+total; // 現在の倉庫在庫（＝在庫数）に今回の入荷数を加算
   fields.wsConfirmedOnInv=false; // 入荷処理は棚卸ページでの確定ではないため、次回の棚卸では改めて赤枠で入力を促す
