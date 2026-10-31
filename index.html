@@ -1063,10 +1063,10 @@ async function toggleArrival(id,checked,cb,demo){
       return;
     }
     if(demo){
-      Object.assign(x,{arrivalChecked:false,confirmDate:""});
+      Object.assign(x,{arrivalChecked:false,confirmDate:"",receiver:""});
       renderDemoPage();
     }else{
-      await updateItemFields(currentMonth,id,{arrivalChecked:false,confirmDate:""});
+      await updateItemFields(currentMonth,id,{arrivalChecked:false,confirmDate:"",receiver:""});
       updateSingleItemCard(id);
     }
   }
@@ -1108,10 +1108,11 @@ async function confirmArrival(){
   fields.confirmDate=toDateTimeLocal(d); // 納品確認日を今の日時で自動入力
   const z=n=>String(n).padStart(2,"0");
   const dateStr=d.getFullYear()+"/"+z(d.getMonth()+1)+"/"+z(d.getDate())+" "+z(d.getHours())+":"+z(d.getMinutes());
-  const noteLine="【入荷】"+dateStr+" 入数"+qty+"×"+cartons+"カートン＝"+total+"個｜受領者："+receiver;
+  const noteLine="【入荷】"+dateStr+" 入数"+qty+"×"+cartons+"カートン＝"+total+"個"; // 受領者は備考欄ではなく専用項目(receiver)に保存する
   fields.notes=(x.notes?x.notes+"\n":"")+noteLine; // 備考欄に追記
   fields.warehouseStock=(Number(x.warehouseStock)||0)+total; // 現在の倉庫在庫（＝在庫数）に今回の入荷数を加算
   fields.wsConfirmedOnInv=false; // 入荷処理は棚卸ページでの確定ではないため、次回の棚卸では改めて赤枠で入力を促す
+  fields.receiver=receiver; // 受領者は専用項目に保存（一覧カードの納品予定日の横に表示する）
   fields.arrivalChecked=true;
   if(demo){
     Object.assign(x,fields);
@@ -1331,7 +1332,7 @@ function renderItemCardHtml(x,demo){
         <div class="product-no">景品№ ${esc(x.productNo||"未登録")}</div>
         <div class="name-row"><input class="arrival-check" type="checkbox" ${x.arrivalChecked?"checked":""} ${lockedAttr} ${arrivalOnchange} onclick="event.stopPropagation()"><div class="name" ${nameOnclick}>${esc(x.name)}${locked?' <span class="badge" style="background:#fee2e2;color:#dc2626">'+(x.soldOut?"完売":"延期/発売中止")+'のため入荷・在庫操作不可</span>':""}</div></div>
         <div class="meta">発注先：${esc(x.supplier||"未登録")}</div>
-        <div class="meta">込単価：${x.unitPrice!==""&&x.unitPrice!=null?"¥"+esc(x.unitPrice):"未登録"}｜納品予定日：${esc(x.deliveryDate||"未登録")}</div>
+        <div class="meta">込単価：${x.unitPrice!==""&&x.unitPrice!=null?"¥"+esc(x.unitPrice):"未登録"}｜納品予定日：${esc(x.deliveryDate||"未登録")}${x.confirmDate?"｜入荷日："+esc(String(x.confirmDate).replace("T"," ")):""}${x.receiver?"｜受領者："+esc(x.receiver):""}</div>
         <div class="meta" style="display:flex;align-items:center;gap:6px">在庫場所：<input class="loc-edit" onclick="event.stopPropagation()" ${locOnchange} value="${esc(x.location||"")}" placeholder="未登録"></div>
         ${x.isFood?`<div class="meta" style="color:#b45309;font-weight:700">🍡 賞味期限：${esc(x.expiryDate||"未登録")}</div>`:""}
         <div class="soldout-row"><label onclick="event.stopPropagation()"><input type="checkbox" ${x.soldOut?"checked":""} ${soldOnchange}>完売を確認</label></div>
