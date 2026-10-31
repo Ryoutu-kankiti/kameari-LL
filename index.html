@@ -317,6 +317,7 @@ body.dark select{background-image:linear-gradient(45deg,transparent 50%,#9aa4b2 
 <label id="d_taiwanWrap" class="full" style="display:none;flex-direction:row;align-items:center;gap:8px"><input id="d_taiwanCatcher" type="checkbox" style="width:22px;min-height:22px;flex:0 0 auto">台湾キャッチャーで利用</label>
 <label class="full" style="flex-direction:row;align-items:center;gap:8px"><input id="d_soldOut" type="checkbox" style="width:22px;min-height:22px;flex:0 0 auto" onchange="onDetailSoldOutChange(this)">完売を確認</label>
 <label class="full">備考欄<textarea id="d_notes" rows="4"></textarea></label>
+<label class="full">メモ欄（自由記入・エクセルの再アップロードの影響を受けません）<textarea id="d_memo" rows="3"></textarea></label>
 <label id="d_postponedWrap" class="full" style="flex-direction:row;align-items:center;gap:8px"><input id="d_postponed" type="checkbox" style="width:22px;min-height:22px;flex:0 0 auto">延期もしくは発売中止<span id="d_postponedStaffHint" class="help" style="margin:0 0 0 4px;display:none">（社員のみ変更できます）</span></label>
 </div>
 <div class="detail-actions"><button onclick="saveDetail()">保存</button><button class="secondary" onclick="closeDetail()">キャンセル</button><button class="danger" onclick="deleteFromDetail()">削除</button></div>
@@ -858,7 +859,7 @@ function openDetail(id,demo){
 }
 // 選択した景品のデータを詳細画面の各入力欄に流し込む（開いた直後に呼ばれる）
 function fillDetail(x){
-  const map={d_productNo:x.productNo,d_orderDate:x.orderDate,d_supplier:x.supplier,d_releaseDate:x.releaseDate,d_name:x.name,d_quantity:x.quantity,d_shikiri:x.shikiri,d_shipping:x.shipping,d_orderQty:x.orderQty,d_includedShikiri:x.includedShikiri,d_purchasePrice:x.purchasePrice,d_unitPrice:x.unitPrice,d_deliveryDate:x.deliveryDate,d_confirmDate:x.confirmDate,d_warehouseStock:x.warehouseStock,d_location:x.location,d_notes:x.notes,d_expiryDate:x.expiryDate};
+  const map={d_productNo:x.productNo,d_orderDate:x.orderDate,d_supplier:x.supplier,d_releaseDate:x.releaseDate,d_name:x.name,d_quantity:x.quantity,d_shikiri:x.shikiri,d_shipping:x.shipping,d_orderQty:x.orderQty,d_includedShikiri:x.includedShikiri,d_purchasePrice:x.purchasePrice,d_unitPrice:x.unitPrice,d_deliveryDate:x.deliveryDate,d_confirmDate:x.confirmDate,d_warehouseStock:x.warehouseStock,d_location:x.location,d_notes:x.notes,d_memo:x.memo,d_expiryDate:x.expiryDate};
   document.getElementById("d_expiryWrap").style.display=x.isFood?"":"none"; // 賞味期限欄は食品のときだけ表示
   document.getElementById("d_taiwanWrap").style.display=x.isFood?"":"none"; // 台湾キャッチャー欄も食品のときだけ表示
   document.getElementById("d_taiwanCatcher").checked=!!x.taiwanCatcher;
@@ -879,7 +880,7 @@ async function saveDetail(){
     name,quantity:v("d_quantity"),
     shikiri:v("d_shikiri"),shipping:v("d_shipping"),orderQty:v("d_orderQty"),includedShikiri:v("d_includedShikiri"),
     purchasePrice:v("d_purchasePrice"),unitPrice:v("d_unitPrice"),deliveryDate:v("d_deliveryDate"),
-    confirmDate:v("d_confirmDate"),warehouseStock:v("d_warehouseStock"),location:v("d_location"),notes:v("d_notes"),
+    confirmDate:v("d_confirmDate"),warehouseStock:v("d_warehouseStock"),location:v("d_location"),notes:v("d_notes"),memo:v("d_memo"),
     expiryDate:v("d_expiryDate"),taiwanCatcher:document.getElementById("d_taiwanCatcher").checked,
     soldOut:document.getElementById("d_soldOut").checked,
     postponed:isStaff()?document.getElementById("d_postponed").checked:!!target.postponed // 社員以外は元の値のまま変更しない
