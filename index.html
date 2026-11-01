@@ -1898,6 +1898,12 @@ function mergeArrivalNotes(excelNotes,existingNotes){
   if(!missing.length)return base;
   return (base?base+"\n":"")+missing.join("\n");
 }
+// エクセルA列の食品判定が「食品あり」かを判定する。「1」「１」「1.0」「1.00」「TRUE」など、表示形式の違いがあっても食品として扱う
+function isFoodFlag(v){
+  const t=String(v??"").normalize("NFKC").replace(/[\s\u200b\ufeff]/g,"").toUpperCase();
+  if(t==="TRUE")return true;
+  return t!==""&&!isNaN(Number(t))&&Number(t)===1;
+}
 async function commitBulk(){
   if(!bulkRows.length)return;
   const targetMonth=document.getElementById("bulkTargetMonth").value||currentMonth;
@@ -1929,7 +1935,7 @@ async function commitBulk(){
         includedShikiri:r.includedShikiri,purchasePrice:r.purchasePrice,unitPrice:r.unitPrice,
         notes:mergeArrivalNotes(r.notes,keep.notes),deliveryDate:r.deliveryDate,confirmDate:r.confirmDate||keep.confirmDate||"", // 備考欄はエクセルの内容を基本としつつ、アプリで記録した【入荷】行は残す。納品確認日もエクセルが空欄ならアプリ側の値を残す
         warehouseAmount:r.warehouseAmount||"",floorAmount:r.floorAmount||"",
-        isFood:String(r.isFood||"").trim()==="1", // 食品判定は常に今回のエクセル(A列)の内容を優先し、既存の値があっても上書きする
+        isFood:isFoodFlag(r.isFood), // 食品判定は常に今回のエクセル(A列)の内容を優先し、既存の値があっても上書きする
         ...(soldOrPostponed?{warehouseStock:0,floorStock:0,wsConfirmedOnInv:false}:{floorStock:r.floorStock||""})
         // 在庫場所(location)・入荷チェック・完売・賞味期限などは対象に含めず、既存の値をそのまま維持する
         // （倉庫在庫(warehouseStock)も通常時は対象外で既存値を維持するが、完売・延期の場合のみ上の分岐で0に上書きする）
@@ -1946,7 +1952,7 @@ async function commitBulk(){
         location:match?(match.location||""):"", // 在庫場所は前月からの引き継ぎのみ
         notes:r.notes,soldOut:false,arrivalChecked:match?!!match.arrivalChecked:false,createdAt:new Date().toISOString(),
         warehouseStock:match?carriedStock:"",wsConfirmedOnInv:false,warehouseAmount:r.warehouseAmount||"",floorStock:r.floorStock||"",floorAmount:r.floorAmount||"",
-        isFood:String(r.isFood||"").trim()==="1",expiryDate:match?(match.expiryDate||""):"", // 食品判定は前月引き継ぎより今回のエクセル(A列)を優先する
+        isFood:isFoodFlag(r.isFood),expiryDate:match?(match.expiryDate||""):"", // 食品判定は前月引き継ぎより今回のエクセル(A列)を優先する
         taiwanCatcher:false, // 台湾キャッチャー利用フラグは月替わりのたびに手動で再設定する仕様（引き継ぎ対象外）
         postponed:false // 延期・発売中止フラグも新規登録時は初期値false（引き継ぎ対象外）
       });
