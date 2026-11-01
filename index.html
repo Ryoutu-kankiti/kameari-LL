@@ -117,6 +117,13 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-vis
 .stock-edit{flex:0 0 96px;width:96px;min-width:0;font-variant-numeric:tabular-nums}
 .loc-edit{min-width:0}
 /* スマホで「景品一覧」の見出し行が折り返すと、右上のはずのボタン群が左寄せになり、⋮メニューが画面の左へはみ出していた。常に右寄せにし、メニュー幅も画面幅を超えないようにする */
+/* 幅の狭いスマホで、景品カードだけが他の白枠より右へはみ出していた（左側の文字列が縮められず、右の倉庫在庫欄に押し出されていた）。左側を縮められるようにして、枠の幅をそろえる */
+.item-list>*{min-width:0}
+.item-top>div:first-child{min-width:0;flex:1 1 auto}
+.name-row{min-width:0}
+.name,.meta{min-width:0;overflow-wrap:anywhere}
+.stock-num{max-width:100%}
+@media(max-width:420px){.stock-num{width:76px;padding:2px 8px}}
 .list-title>div{margin-left:auto}
 .view-menu{max-width:calc(100vw - 32px)}
 .view-menu button.danger{background:#dc2626;color:#fff} /* 「この月の登録景品を全て削除」が白地に白文字で見えなくなっていたため、赤地に白文字にする */
