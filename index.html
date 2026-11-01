@@ -114,7 +114,8 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-vis
 .stock-num:disabled{background:transparent;border-color:transparent;color:#98a2b3}
 .item.sold-out .stock-num{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.4);color:#fff}
 .loc-edit,.stock-edit{font-size:16px;min-height:40px;border-radius:10px}
-.stock-edit{flex:0 0 96px;font-variant-numeric:tabular-nums}
+.stock-edit{flex:0 0 96px;width:96px;min-width:0;font-variant-numeric:tabular-nums}
+.loc-edit{min-width:0}
 .stock-add-btn{width:40px;min-height:40px;border-radius:10px}
 .stat-value{font-variant-numeric:tabular-nums}
 /* 絞り込み欄を画面上部に固定（スマホでは検索欄と「絞り込み」ボタンだけを常に表示し、各絞り込みは必要なときだけ開く） */
@@ -265,7 +266,6 @@ body.dark header{box-shadow:0 2px 10px rgba(0,0,0,.5)}
 <label style="display:flex;align-items:center;gap:8px;margin:0 0 14px">棚卸する月<select id="inventoryMonthGrid" onchange="selectMonth(this.value)" style="max-width:220px"></select></label>
 <div class="help">在庫場所・倉庫在庫・機械在庫をその場で入力できます。＋ボタンで、後から数えた分を今の数に加算できます。「エクセル用に出力」を行うと、倉庫在庫＋機械在庫の合計が各景品の在庫数にも反映されます。倉庫在庫・機械在庫・在庫場所は入力必須です（倉庫在庫と機械在庫が共に0の場合、在庫場所は不要です）。</div>
 <div class="detail-actions" style="margin-top:14px"><button class="secondary" onclick="openExportOverlay()">エクセル用に出力</button><button class="secondary" onclick="openUnknownItemOverlay()">不明景品の追加</button><button class="secondary" id="soldOutFixBtn" style="display:none" onclick="fixSoldOutStockMismatch()">完売の在庫不整合を一括修正</button></div>
-</div>
 </section>
 <div class="sticky-bar collapsed" id="inventoryStickyBar">
 <div class="inv-remaining" id="invRemaining"></div>
@@ -278,6 +278,7 @@ body.dark header{box-shadow:0 2px 10px rgba(0,0,0,.5)}
 <div class="menu-wrap">
 <button type="button" class="secondary" id="inventorySupplierFilterBtn" onclick="toggleSupplierMenu(event,'inventory')" style="width:100%;text-align:left">発注先：すべて ▾</button>
 <div id="inventorySupplierMenu" class="view-menu supplier-menu" onclick="event.stopPropagation()"><div id="inventorySupplierMenuList"></div></div>
+</div>
 </div>
 </div>
 <section class="item-list" id="inventoryList"></section>
