@@ -116,6 +116,11 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-vis
 .loc-edit,.stock-edit{font-size:16px;min-height:40px;border-radius:10px}
 .stock-edit{flex:0 0 96px;width:96px;min-width:0;font-variant-numeric:tabular-nums}
 .loc-edit{min-width:0}
+/* スマホで「景品一覧」の見出し行が折り返すと、右上のはずのボタン群が左寄せになり、⋮メニューが画面の左へはみ出していた。常に右寄せにし、メニュー幅も画面幅を超えないようにする */
+.list-title>div{margin-left:auto}
+.view-menu{max-width:calc(100vw - 32px)}
+.view-menu button.danger{background:#dc2626;color:#fff} /* 「この月の登録景品を全て削除」が白地に白文字で見えなくなっていたため、赤地に白文字にする */
+body.dark .view-menu button.danger{background:#b91c1c;color:#fff}
 .stock-add-btn{width:40px;min-height:40px;border-radius:10px}
 .stat-value{font-variant-numeric:tabular-nums}
 /* 絞り込み欄を画面上部に固定（スマホでは検索欄と「絞り込み」ボタンだけを常に表示し、各絞り込みは必要なときだけ開く） */
