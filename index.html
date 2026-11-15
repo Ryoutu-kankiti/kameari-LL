@@ -144,6 +144,24 @@ body.dark .view-menu button.danger{background:#b91c1c;color:#fff}
 .sticky-bar.collapsed .toolbar>*:not(#search):not(#inventorySearch):not(.filter-toggle){display:none}
 }
 
+/* 金額の表示（社員のみ・折りたたみ） */
+.amount-card{padding:12px 16px}
+.amount-toggle{width:100%;text-align:left;font-weight:700}
+.amount-toggle:disabled{opacity:.55;cursor:not-allowed;background:#e5e7eb;color:#6b7280}
+.amount-panel{margin-top:12px;display:grid;gap:12px}
+.amount-block{background:#f6f8fc;border-radius:12px;padding:12px 14px}
+.amount-title{font-size:13px;font-weight:700;color:#475467;margin-bottom:4px}
+.amount-main{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.3}
+.amount-sub{font-size:13px;color:#667085;font-variant-numeric:tabular-nums}
+.amount-food{margin-top:6px;font-size:14px;font-variant-numeric:tabular-nums}
+.amount-block .help{margin-top:6px}
+.amount-rate{display:inline-block;margin-top:6px;padding:4px 12px;border-radius:999px;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
+.amount-rate.ok{background:#dcfce7;color:#166534}
+.amount-rate.warn{background:#fef3c7;color:#92400e}
+.amount-rate.alert{background:#fee2e2;color:#b91c1c}
+.amount-main.warn{color:#b45309}
+.amount-main.alert{color:#dc2626}
+
 /* ===== ダークモード（右上「⋮」メニューの「ダークモード」で切り替え。body.darkが付くと有効） ===== */
 body.dark{background:#12151c;color:#e5e7eb}
 body.dark header{background:#15305e}
@@ -187,6 +205,14 @@ body.dark .filter-toggle.active{background:#2563eb;color:#fff}
 body.dark .inv-remaining{background:#3a1414;color:#fca5a5}
 body.dark .inv-remaining.done{background:#123524;color:#6ee7a0}
 body.dark header{box-shadow:0 2px 10px rgba(0,0,0,.5)}
+body.dark .amount-block{background:#232a38}
+body.dark .amount-title,body.dark .amount-sub{color:#9aa4b2}
+body.dark .amount-toggle:disabled{background:#2b3242;color:#6b7280}
+body.dark .amount-rate.ok{background:#123524;color:#6ee7a0}
+body.dark .amount-rate.warn{background:#3a2c0b;color:#fcd34d}
+body.dark .amount-rate.alert{background:#3a1414;color:#fca5a5}
+body.dark .amount-main.warn{color:#fbbf24}
+body.dark .amount-main.alert{color:#f87171}
 </style>
 </head>
 <body>
@@ -301,6 +327,27 @@ body.dark header{box-shadow:0 2px 10px rgba(0,0,0,.5)}
 <section class="card">
 <h2>月を選択</h2>
 <select id="monthGrid" onchange="selectMonth(this.value)"></select>
+</section>
+
+<section class="card amount-card" id="amountCard">
+<button type="button" class="secondary amount-toggle" id="amountToggleBtn" onclick="toggleAmountPanel()">💴 金額を見る ▾</button>
+<div class="amount-panel" id="amountPanel" style="display:none">
+<div class="amount-block">
+<div class="amount-title">① 発注金額（登録されている全景品）</div>
+<div class="amount-main" id="orderAmountTotal">¥0</div>
+<div class="amount-sub" id="orderAmountTotalMan"></div>
+<div class="amount-food">うち食品（食品判定1）：<b id="orderAmountFood">¥0</b></div>
+<div class="help">込単価 × 入数 × 発注数。延期・発売中止の景品は含みません。</div>
+</div>
+<div class="amount-block">
+<div class="amount-title">② 倉庫在庫の金額（現在）</div>
+<div class="amount-main" id="stockAmountTotal">¥0</div>
+<div class="amount-sub" id="stockAmountTotalMan"></div>
+<div class="amount-rate" id="stockAmountRate"></div>
+<div class="amount-food">うち食品（食品判定1）：<b id="stockAmountFood">¥0</b></div>
+<div class="help">込単価 × 倉庫在庫数。基準は<span id="stockAmountBaseLabel"></span>（100%）。基準から±10%以上離れると黄色、±15%以上で赤で表示します。</div>
+</div>
+</div>
 </section>
 
 <section class="summary">
@@ -589,6 +636,7 @@ function enterApp(){
   document.getElementById("loggedInName").textContent=currentEmployee.email+"（"+currentEmployee.status+"）";
   document.getElementById("bulkMenuBtn").style.display=isStaff()?"":"none"; // 一括登録は社員のみメニューに表示
   document.getElementById("soldOutFixBtn").style.display=isStaff()?"":"none"; // 完売の在庫不整合一括修正も社員のみ
+  refreshAmountPanel(); // 金額ボタンも社員のみ押せる
   updateListViewModeButton();
   applyDarkModePreference();
   initStockFilterOptions();
@@ -686,6 +734,7 @@ async function batchSetItems(monthKeyStr,itemsArr){
   }
 }
 const structureMigratedMonths=new Set(); // 今回のブラウザセッションで、旧データ構造の移行チェックを既に行った月（無駄な全件読み取りを避けるためのキャッシュ）
+const stockMigrationInFlight=new Set(); // 移行の書き込みを実行中の月（同じ月の移行を二重に始めないための目印）
 const stockFieldsMigratedMonths=new Set(); // 今回のブラウザセッションで、stock/receivedQtyの移行チェックを既に行った月（同上）
 // 旧バージョン（月1ドキュメントにitems配列）で保存されていたデータがあれば、新しいサブコレクション形式へ一度だけ移行する。既にサブコレクションにデータがあれば何もしない
 // このブラウザセッションで既にチェック済みの月は、無駄な読み取りを避けるため再チェックしない
@@ -705,9 +754,12 @@ async function ensureMonthMigrated(monthKeyStr){
 // ・stock・receivedQtyのどちらも無い（＝移行済みの）景品はスキップする
 // 書き込みに失敗した場合はそのままエラーを投げる。失敗を検知した呼び出し元はこの月の表示・編集を中止し、利用者に報告すること
 // このブラウザセッションで既にチェック済みの月は、無駄な全件読み取りを避けるため再チェックしない
-async function ensureStockFieldsMigrated(monthKeyStr){
-  if(stockFieldsMigratedMonths.has(monthKeyStr))return;
-  const snap=await itemsRef(monthKeyStr).get();
+// 【読み取り回数の節約】移行の要否を調べるためだけに全件を読み直すと、画面を開くたびに読み取りが倍になる。
+// そこで、呼び出し側が既に読み込んだ景品（docs）を渡してもらい、その中身を調べるだけにする（追加の読み取りは発生しない）。
+// 旧フィールドを持つ景品があって書き込みを行った場合はtrue、何もしなかった場合はfalseを返す
+async function ensureStockFieldsMigrated(monthKeyStr,docs){
+  if(stockFieldsMigratedMonths.has(monthKeyStr))return false;
+  const snap={docs};
   const targets=[];
   const notBlank=v=>v!==undefined&&v!==null&&v!=="";
   snap.docs.forEach(doc=>{
@@ -727,13 +779,16 @@ async function ensureStockFieldsMigrated(monthKeyStr){
     await batch.commit();
   }
   stockFieldsMigratedMonths.add(monthKeyStr); // 書き込みが全て成功した場合のみキャッシュする（失敗時は例外が投げられ、ここには到達しない）
+  return targets.length>0;
 }
 // 指定した月の景品配列を取得する（キャッシュ済みならそれを返し、無ければ移行処理の上でFirestoreから取得してキャッシュする）
 async function fetchMonthItems(monthKeyStr){
   if(data[monthKeyStr])return data[monthKeyStr];
   await ensureMonthMigrated(monthKeyStr);
-  await ensureStockFieldsMigrated(monthKeyStr); // 失敗時はここで例外が投げられ、呼び出し元（commitBulkなど）で処理が中止される
-  const snap=await itemsRef(monthKeyStr).get();
+  let snap=await itemsRef(monthKeyStr).get();
+  // 読み込んだ内容から移行が必要な景品だけを探して書き換える（失敗時はここで例外が投げられ、呼び出し元（commitBulkなど）で処理が中止される）。
+  // 実際に書き換えた場合だけ、最新の内容を読み直す
+  if(await ensureStockFieldsMigrated(monthKeyStr,snap.docs))snap=await itemsRef(monthKeyStr).get();
   data[monthKeyStr]=snap.docs.map(d=>d.data());
   return data[monthKeyStr];
 }
@@ -950,14 +1005,17 @@ async function selectMonth(k){
   renderMonths();
   if(monthUnsub)monthUnsub(); // 前に購読していた月のリスナーは解除する
   await ensureMonthMigrated(k); // 旧形式のデータが残っていれば先に移行する
-  try{
-    await ensureStockFieldsMigrated(k); // stock・receivedQtyフィールドをwarehouseStockへ一本化する移行処理
-  }catch(err){
-    console.error("在庫数フィールドの移行に失敗しました：",err);
-    alert("この月のデータ移行に失敗したため、表示を中止しました。通信状況をご確認のうえ、もう一度お試しください。");
-    return; // 移行できていないデータで表示・編集してしまうことを防ぐため、購読・描画は行わない
-  }
   monthUnsub=itemsRef(k).onSnapshot(snap=>{
+    // stock・receivedQtyフィールドをwarehouseStockへ一本化する移行処理。
+    // 移行の要否を調べるための全件読み取りをやめ、リスナーが最初に受け取った内容から調べる（読み取り回数が約半分になる）。
+    // 旧フィールドを持つ景品がある場合のみ書き換えが行われ、その結果はこのリスナーに自動で反映される
+    if(!stockFieldsMigratedMonths.has(k)&&!stockMigrationInFlight.has(k)){
+      stockMigrationInFlight.add(k);
+      ensureStockFieldsMigrated(k,snap.docs).catch(err=>{
+        console.error("在庫数フィールドの移行に失敗しました：",err);
+        alert("この月の古いデータの移行に失敗しました。通信状況をご確認のうえ、画面を読み込み直してください。");
+      }).finally(()=>stockMigrationInFlight.delete(k));
+    }
     const isFirstLoad=!data[k];
     const list=data[k]||(data[k]=[]);
     const changedIds=[];
@@ -1542,6 +1600,7 @@ function render(){
   populateDeliveryDateFilterOptions();
   const list=visibleSortedItems();
   document.getElementById("itemCount").textContent=items().length;
+  refreshAmountPanel();
   document.getElementById("soldOutCount").textContent=items().filter(x=>x.soldOut).length;
   document.getElementById("checkedCount").textContent=items().filter(x=>x.arrivalChecked).length;
   // 誰か（自分・他の人問わず）がこの一覧内の入力欄を今まさに編集中の場合、ここでinnerHTMLを丸ごと作り直すと
@@ -1555,7 +1614,76 @@ function render(){
 // 編集内容によって絞り込み条件に合わなくなった場合はカードを取り除き、逆に新たに条件に合致するようになった場合は正しい位置に挿入する。
 // 景品ナンバー自体が変わる編集は無いため、並び順の再計算だけで位置がずれる心配はない
 // render()と同様、一覧内を編集中の場合はDOM更新を見送る
+/* ===== 金額の表示（社員のみ・折りたたみ） ===== */
+// 倉庫在庫の金額の基準（この金額を100%として、ずれの大きさで色を変える）
+const STOCK_AMOUNT_BASE=9500000; // 950万円
+const STOCK_AMOUNT_WARN_PCT=10;  // 基準から±10%以上離れたら黄色
+const STOCK_AMOUNT_ALERT_PCT=15; // 基準から±15%以上離れたら赤
+function amountToNum(v){
+  const n=Number(String(v==null?"":v).replace(/[^0-9.\-]/g,""));
+  return isFinite(n)?n:0; // 空欄・数字でない値は0として扱う
+}
+function formatYen(n){return "¥"+Math.round(n).toLocaleString("ja-JP")}
+function formatMan(n){ // 例：89,000,000 → 約8,900万円
+  const man=Math.round(n/10000);
+  if(man===0)return n>0?"1万円未満":"0円";
+  return man>=10000?"約"+(man/10000).toLocaleString("ja-JP",{maximumFractionDigits:2})+"億円（"+man.toLocaleString("ja-JP")+"万円）":"約"+man.toLocaleString("ja-JP")+"万円";
+}
+// 発注金額＝込単価×入数×発注数（延期・発売中止の景品は除く）／倉庫在庫の金額＝込単価×倉庫在庫数。それぞれ「うち食品（食品判定1）」も集計する
+function calcAmounts(list){
+  const r={order:0,orderFood:0,stock:0,stockFood:0};
+  list.forEach(x=>{
+    const unit=amountToNum(x.unitPrice);
+    const stock=unit*amountToNum(x.warehouseStock);
+    r.stock+=stock;
+    if(x.isFood)r.stockFood+=stock;
+    if(!x.postponed){
+      const order=unit*amountToNum(x.quantity)*amountToNum(x.orderQty);
+      r.order+=order;
+      if(x.isFood)r.orderFood+=order;
+    }
+  });
+  return r;
+}
+// 倉庫在庫の金額が基準からどれだけ離れているかで、表示の段階（ok／warn／alert）を決める
+function stockAmountLevel(total){
+  const diff=Math.round(((total/STOCK_AMOUNT_BASE)*100-100)*1e6)/1e6; // 基準を100%としたときの差（％）。小数の誤差で10.0%ちょうどが外れないよう丸める
+  const abs=Math.abs(diff);
+  return {diff,level:abs>=STOCK_AMOUNT_ALERT_PCT?"alert":abs>=STOCK_AMOUNT_WARN_PCT?"warn":"ok"};
+}
+function toggleAmountPanel(){
+  if(!isStaff())return; // 社員以外は開けない
+  const panel=document.getElementById("amountPanel");
+  panel.style.display=panel.style.display==="none"?"":"none";
+  refreshAmountPanel();
+}
+// ボタンの状態（社員以外はグレーで押せない）と、開いているときの金額を最新にする
+function refreshAmountPanel(){
+  const btn=document.getElementById("amountToggleBtn"),panel=document.getElementById("amountPanel");
+  if(!btn||!panel)return;
+  const staff=isStaff();
+  btn.disabled=!staff;
+  if(!staff)panel.style.display="none";
+  const open=panel.style.display!=="none";
+  btn.textContent="💴 金額を見る "+(open?"▴":"▾")+(staff?"":"（社員のみ）");
+  if(!staff||!open)return;
+  const a=calcAmounts(items());
+  document.getElementById("orderAmountTotal").textContent=formatYen(a.order);
+  document.getElementById("orderAmountTotalMan").textContent=formatMan(a.order);
+  document.getElementById("orderAmountFood").textContent=formatYen(a.orderFood)+"（"+formatMan(a.orderFood)+"）";
+  document.getElementById("stockAmountTotal").textContent=formatYen(a.stock);
+  document.getElementById("stockAmountTotalMan").textContent=formatMan(a.stock);
+  document.getElementById("stockAmountFood").textContent=formatYen(a.stockFood)+"（"+formatMan(a.stockFood)+"）";
+  document.getElementById("stockAmountBaseLabel").textContent=formatMan(STOCK_AMOUNT_BASE).replace("約","");
+  const {diff,level}=stockAmountLevel(a.stock);
+  const pct=a.stock/STOCK_AMOUNT_BASE*100;
+  const rate=document.getElementById("stockAmountRate");
+  rate.className="amount-rate "+level;
+  rate.textContent="基準比 "+pct.toFixed(1)+"%（"+(diff>=0?"+":"−")+Math.abs(diff).toFixed(1)+"%）"+(level==="alert"?" 要確認":level==="warn"?" 注意":"");
+  document.getElementById("stockAmountTotal").className="amount-main"+(level==="ok"?"":" "+level);
+}
 function updateSingleItemCard(id){
+  refreshAmountPanel();
   document.getElementById("soldOutCount").textContent=items().filter(x=>x.soldOut).length;
   document.getElementById("checkedCount").textContent=items().filter(x=>x.arrivalChecked).length;
   const container=document.getElementById("itemList");
@@ -1781,6 +1909,7 @@ function renderInventory(){
 function updateSingleInventoryCard(id){
   const wrap=document.getElementById("inventoryList");
   if(!wrap)return;
+  refreshAmountPanel(); // 棚卸で倉庫在庫を変えたときも、金額を最新にする
   updateInventoryRemaining(); // 編集中で再描画を見送る場合でも、残り件数は常に最新にする
   const existingEl=document.getElementById("inv-item-"+id);
   // このカード自身が編集中（フォーカスがこのカードの中にある）ときだけ更新を見送る（updateSingleItemCardと同じ理由）
