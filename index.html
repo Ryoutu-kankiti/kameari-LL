@@ -155,6 +155,16 @@ body.dark .view-menu button.danger{background:#b91c1c;color:#fff}
 .amount-sub{font-size:13px;color:#667085;font-variant-numeric:tabular-nums}
 .amount-food{margin-top:6px;font-size:14px;font-variant-numeric:tabular-nums}
 .amount-block .help{margin-top:6px}
+.amount-range{font-size:14px;margin:4px 0 2px;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.amount-range-label{flex-basis:100%}
+.amount-range-fixed{font-weight:700;font-variant-numeric:tabular-nums}
+.amount-slider{-webkit-appearance:none;appearance:none;width:100%;height:8px;margin:16px 0 12px;padding:0;min-height:0;border:0;border-radius:999px;background:#d0d7e2;box-shadow:none;touch-action:pan-y}
+.amount-slider:focus{box-shadow:none;outline:none}
+.amount-slider:focus-visible{outline:3px solid rgba(31,111,235,.35);outline-offset:6px}
+.amount-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:30px;height:30px;border-radius:50%;background:#1f6feb;border:3px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.4)}
+.amount-slider::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:#1f6feb;border:3px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.4)}
+.amount-slider::-moz-range-track{height:8px;border-radius:999px;background:#d0d7e2}
+.amount-range input{width:84px;min-height:38px;font-size:16px;padding:4px 8px;text-align:right;font-variant-numeric:tabular-nums}
 .amount-rate{display:inline-block;margin-top:6px;padding:4px 12px;border-radius:999px;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
 .amount-rate.ok{background:#dcfce7;color:#166534}
 .amount-rate.warn{background:#fef3c7;color:#92400e}
@@ -206,6 +216,8 @@ body.dark .inv-remaining{background:#3a1414;color:#fca5a5}
 body.dark .inv-remaining.done{background:#123524;color:#6ee7a0}
 body.dark header{box-shadow:0 2px 10px rgba(0,0,0,.5)}
 body.dark .amount-block{background:#232a38}
+body.dark .amount-slider,body.dark .amount-slider::-moz-range-track{background:#3a4252}
+body.dark .amount-slider::-webkit-slider-thumb,body.dark .amount-slider::-moz-range-thumb{border-color:#1b202b}
 body.dark .amount-title,body.dark .amount-sub{color:#9aa4b2}
 body.dark .amount-toggle:disabled{background:#2b3242;color:#6b7280}
 body.dark .amount-rate.ok{background:#123524;color:#6ee7a0}
@@ -330,14 +342,17 @@ body.dark .amount-main.alert{color:#f87171}
 </section>
 
 <section class="card amount-card" id="amountCard">
-<button type="button" class="secondary amount-toggle" id="amountToggleBtn" onclick="toggleAmountPanel()">💴 金額を見る ▾</button>
+<button type="button" class="secondary amount-toggle" id="amountToggleBtn" onclick="toggleAmountPanel()">金額を見る ▾</button>
 <div class="amount-panel" id="amountPanel" style="display:none">
 <div class="amount-block">
-<div class="amount-title">① 発注金額（登録されている全景品）</div>
+<div class="amount-title">① 発注金額（当月分）</div>
+<div class="amount-range"><span class="amount-range-label">計算する景品ナンバー（最小は1で固定）</span><span class="amount-range-fixed">1 〜</span><input id="orderRangeTo" type="number" inputmode="numeric" min="1" placeholder="最大" oninput="onOrderRangeInput()"></div>
+<input class="amount-slider" id="orderRangeSlider" type="range" min="1" max="1" step="1" value="1" oninput="onOrderRangeSlider()" aria-label="景品ナンバーの最大">
+<div class="help" id="orderRangeNote"></div>
 <div class="amount-main" id="orderAmountTotal">¥0</div>
 <div class="amount-sub" id="orderAmountTotalMan"></div>
 <div class="amount-food">うち食品（食品判定1）：<b id="orderAmountFood">¥0</b></div>
-<div class="help">込単価 × 入数 × 発注数。延期・発売中止の景品は含みません。</div>
+<div class="help">込単価 × 入数 × 発注数。延期・発売中止の景品は含みません。範囲の設定は、この端末のブラウザに月ごとに保存されます。</div>
 </div>
 <div class="amount-block">
 <div class="amount-title">② 倉庫在庫の金額（現在）</div>
@@ -1630,20 +1645,68 @@ function formatMan(n){ // 例：89,000,000 → 約8,900万円
   return man>=10000?"約"+(man/10000).toLocaleString("ja-JP",{maximumFractionDigits:2})+"億円（"+man.toLocaleString("ja-JP")+"万円）":"約"+man.toLocaleString("ja-JP")+"万円";
 }
 // 発注金額＝込単価×入数×発注数（延期・発売中止の景品は除く）／倉庫在庫の金額＝込単価×倉庫在庫数。それぞれ「うち食品（食品判定1）」も集計する
-function calcAmounts(list){
-  const r={order:0,orderFood:0,stock:0,stockFood:0};
+// range＝{from,to}（どちらも数字またはnull）。発注金額だけに使い、景品ナンバーがこの範囲に入る景品を「当月分」として計算する（どちらもnullなら全景品）
+function productNoToNumber(v){
+  const t=String(v==null?"":v).trim().replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));
+  return /^\d+$/.test(t)?Number(t):null; // 数字だけのナンバーのみ範囲判定の対象。空欄・文字入りはnull
+}
+function calcAmounts(list,range){
+  const r={order:0,orderFood:0,stock:0,stockFood:0,outside:0,unknown:0};
+  const rangeOn=!!range&&(range.from!=null||range.to!=null);
   list.forEach(x=>{
     const unit=amountToNum(x.unitPrice);
     const stock=unit*amountToNum(x.warehouseStock);
     r.stock+=stock;
     if(x.isFood)r.stockFood+=stock;
     if(!x.postponed){
+      if(rangeOn){
+        const no=productNoToNumber(x.productNo);
+        if(no==null){r.unknown++;return}
+        if((range.from!=null&&no<range.from)||(range.to!=null&&no>range.to)){r.outside++;return}
+      }
       const order=unit*amountToNum(x.quantity)*amountToNum(x.orderQty);
       r.order+=order;
       if(x.isFood)r.orderFood+=order;
     }
   });
   return r;
+}
+// 発注金額の「景品ナンバーの範囲」は、この端末のブラウザに月ごとに保存する（Firebaseへの書き込みは増やさない）
+function orderRangeKey(){return "buppin_order_range_"+currentMonth}
+const ORDER_RANGE_MIN=1; // 景品ナンバーの最小は1で固定
+function loadOrderRange(){
+  try{
+    const o=JSON.parse(localStorage.getItem(orderRangeKey())||"null");
+    if(o&&o.to!=null&&isFinite(Number(o.to)))return {to:Number(o.to)};
+  }catch(e){}
+  return {to:null};
+}
+// 最大の入力欄を読む。空欄なら範囲指定なし（全景品で計算）。入力があれば「1〜最大」の範囲で計算する
+function readOrderRangeInputs(){
+  const t=document.getElementById("orderRangeTo").value.trim();
+  let to=t===""||!isFinite(Number(t))?null:Math.max(ORDER_RANGE_MIN,Math.floor(Number(t)));
+  return {from:to==null?null:ORDER_RANGE_MIN,to,swapped:false};
+}
+// スクロールバー（スライダー）の範囲：1〜今月の景品ナンバーの最大値。入力欄の値がそれより大きいときは入力欄の値まで広げる
+function updateOrderRangeSlider(to){
+  const sl=document.getElementById("orderRangeSlider");
+  if(!sl)return;
+  let maxNo=ORDER_RANGE_MIN;
+  items().forEach(x=>{const n=productNoToNumber(x.productNo);if(n!=null&&n>maxNo)maxNo=n});
+  if(to!=null&&to>maxNo)maxNo=to;
+  sl.max=maxNo;
+  sl.value=to==null?maxNo:Math.min(Math.max(to,ORDER_RANGE_MIN),maxNo); // 入力欄が空欄のときは右端（＝全景品）に置く
+}
+let orderRangeLoadedMonth=null;
+function onOrderRangeInput(){
+  const r=readOrderRangeInputs();
+  try{localStorage.setItem(orderRangeKey(),JSON.stringify({to:r.to}))}catch(e){}
+  refreshAmountPanel();
+}
+// スクロールバーを動かしたら、入力欄の最大にも同じ値を入れる
+function onOrderRangeSlider(){
+  document.getElementById("orderRangeTo").value=document.getElementById("orderRangeSlider").value;
+  onOrderRangeInput();
 }
 // 倉庫在庫の金額が基準からどれだけ離れているかで、表示の段階（ok／warn／alert）を決める
 function stockAmountLevel(total){
@@ -1665,9 +1728,20 @@ function refreshAmountPanel(){
   btn.disabled=!staff;
   if(!staff)panel.style.display="none";
   const open=panel.style.display!=="none";
-  btn.textContent="💴 金額を見る "+(open?"▴":"▾")+(staff?"":"（社員のみ）");
+  btn.textContent="金額を見る "+(open?"▴":"▾")+(staff?"":"（社員のみ）");
   if(!staff||!open)return;
-  const a=calcAmounts(items());
+  // 月が切り替わったときだけ、その月に保存してある範囲を入力欄へ戻す（入力中の欄は書き換えない）
+  if(orderRangeLoadedMonth!==currentMonth){
+    orderRangeLoadedMonth=currentMonth;
+    const sv=loadOrderRange();
+    document.getElementById("orderRangeTo").value=sv.to==null?"":sv.to;
+  }
+  const range=readOrderRangeInputs();
+  const a=calcAmounts(items(),range);
+  const rangeOn=range.to!=null;
+  updateOrderRangeSlider(range.to);
+  document.getElementById("orderRangeNote").textContent=!rangeOn?"最大を入れていないため、延期・発売中止を除く全景品で計算しています。"
+    :"景品ナンバー"+ORDER_RANGE_MIN+"〜"+range.to+"の景品だけで計算しています（範囲外 "+a.outside+"件"+(a.unknown?"、ナンバーが空欄・数字でない "+a.unknown+"件":"")+" は含みません）。";
   document.getElementById("orderAmountTotal").textContent=formatYen(a.order);
   document.getElementById("orderAmountTotalMan").textContent=formatMan(a.order);
   document.getElementById("orderAmountFood").textContent=formatYen(a.orderFood)+"（"+formatMan(a.orderFood)+"）";
@@ -1679,7 +1753,7 @@ function refreshAmountPanel(){
   const pct=a.stock/STOCK_AMOUNT_BASE*100;
   const rate=document.getElementById("stockAmountRate");
   rate.className="amount-rate "+level;
-  rate.textContent="基準比 "+pct.toFixed(1)+"%（"+(diff>=0?"+":"−")+Math.abs(diff).toFixed(1)+"%）"+(level==="alert"?" 要確認":level==="warn"?" 注意":"");
+  rate.textContent="基準比 "+pct.toFixed(1)+"%（"+(diff>=0?"+":"−")+Math.abs(diff).toFixed(1)+"%）"; // 色（緑・黄・赤）で状態を示すため、文字の注意書きは付けない
   document.getElementById("stockAmountTotal").className="amount-main"+(level==="ok"?"":" "+level);
 }
 function updateSingleItemCard(id){
