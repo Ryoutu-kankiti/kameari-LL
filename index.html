@@ -392,7 +392,7 @@ body.dark .amount-main.alert{color:#f87171}
 <div class="toolbar toolbar-4col">
 <button type="button" class="secondary filter-toggle" id="mainFilterToggle" onclick="toggleFilters('main')">絞り込み ▾</button>
 <select id="stockFilter" onchange="render()">
-<option value="all">在庫状態：すべて</option><option value="ok">在庫あり</option><option value="low">残り少ない</option><option value="machine-only">マシン内のみ</option><option value="food">食品のみ</option><option value="taiwan">台湾キャッチャーのみ</option>
+<option value="all">在庫状態：すべて</option><option value="ok">在庫あり</option><option value="low">残り少ない</option><option value="machine-only">マシン内のみ</option><option value="sold-out">完売のみ</option><option value="food">食品のみ</option><option value="taiwan">台湾キャッチャーのみ</option>
 </select>
 <div class="menu-wrap">
 <button type="button" class="secondary" id="supplierFilterBtn" onclick="toggleSupplierMenu(event,'main')" style="width:100%;text-align:left">発注先：すべて ▾</button>
@@ -1585,8 +1585,8 @@ function visibleSortedItems(){
   const q=normalizeSearchText(document.getElementById("search").value.trim()), sf=document.getElementById("stockFilter").value;
   let list=sortedItems().filter(x=>{
     const matchText=normalizeSearchText(x.name+" "+(x.category||"")).includes(q), st=status(x.warehouseStock,x.floorStock,x.arrivalChecked).k;
-    // sf="food"は食品(台湾キャッチャー用も含む)全て、"taiwan"は食品かつ台湾キャッチャー利用のみ、それ以外は在庫状態(ok/low/machine-only/not-arrived)で絞り込み
-    const matchStock=sf==="all"?true:sf==="food"?x.isFood===true:sf==="taiwan"?(x.isFood===true&&x.taiwanCatcher===true):st===sf;
+    // sf="sold-out"は完売にチェックが入っている景品のみ、sf="food"は食品(台湾キャッチャー用も含む)全て、"taiwan"は食品かつ台湾キャッチャー利用のみ、それ以外は在庫状態(ok/low/machine-only/not-arrived)で絞り込み
+    const matchStock=sf==="all"?true:sf==="sold-out"?x.soldOut===true:sf==="food"?x.isFood===true:sf==="taiwan"?(x.isFood===true&&x.taiwanCatcher===true):st===sf;
     const matchSupplier=supplierFilterSet.size===0||supplierFilterSet.has((x.supplier||"").trim());
     const matchDeliveryDate=deliveryDateFilterSet.size===0||deliveryDateFilterSet.has((x.deliveryDate||"").trim());
     const matchView=viewFilter==="all"||(viewFilter==="checked"&&x.arrivalChecked===true)||(viewFilter==="unchecked"&&x.arrivalChecked!==true);
@@ -2403,7 +2403,7 @@ function clearBulk(){
 // 「在庫状態」絞り込みの選択肢を固定でJSから生成する。
 // データ（食品や台湾キャッチャーの景品が実際にあるか）に関わらず、選択肢自体は常に全て表示されるようにするため
 function initStockFilterOptions(){
-  const opts=[["all","在庫状態：すべて"],["ok","在庫あり"],["low","残り少ない"],["machine-only","マシン内のみ"],["food","食品のみ"],["taiwan","台湾キャッチャーのみ"]];
+  const opts=[["all","在庫状態：すべて"],["ok","在庫あり"],["low","残り少ない"],["machine-only","マシン内のみ"],["sold-out","完売のみ"],["food","食品のみ"],["taiwan","台湾キャッチャーのみ"]];
   document.getElementById("stockFilter").innerHTML=opts.map(([v,l])=>`<option value="${v}">${l}</option>`).join("");
 }
 // 発注先チェックボックスの選択状態（複数選択可）。空集合＝絞り込みなし（すべて表示）
